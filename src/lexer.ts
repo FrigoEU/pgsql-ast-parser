@@ -84,6 +84,8 @@ export const lexer = compile({
         // ... to add: "IN" and "NOT IN" that are matched by keywords
         match: ['>', '>=', '<', '<=', '@>', '<@', '?', '?|', '?&', '#>>', '>>', '<<', '~'],
     },
+    // plpgsql
+    op_assignment: ':=',
     ops_others: {
         // referenced as (any other operator) in https://www.postgresql.org/docs/12/sql-syntax-lexical.html#SQL-PRECEDENCE
         // see also https://www.postgresql.org/docs/9.0/functions-math.html

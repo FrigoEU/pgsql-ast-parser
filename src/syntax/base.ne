@@ -226,6 +226,11 @@ kw_prepare -> %word {% notReservedKw('prepare')  %}
 kw_raise -> %word {% notReservedKw('raise')  %}
 kw_continue -> %word {% notReservedKw('continue')  %}
 
+# plpgsql
+kw_end -> %word {% notReservedKw('end')  %}
+kw_declare -> %word {% notReservedKw('declare')  %}
+kw_constant -> %word {% notReservedKw('constant')  %}
+
 
 # === Composite keywords
 kw_ifnotexists -> kw_if %kw_not kw_exists

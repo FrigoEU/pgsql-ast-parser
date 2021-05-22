@@ -1,6 +1,7 @@
-import { Parser, Grammar } from 'nearley';
+import { Parser, Grammar, CompiledRules } from 'nearley';
 import { expect, assert } from 'chai';
 import grammar from '../syntax/main.ne';
+import plpgsqlGrammar from '../plpgsql-syntax/plpgsql.ne';
 import { trimNullish } from '../utils';
 import { Expr, SelectStatement, CreateTableStatement, CreateIndexStatement, Statement, InsertStatement, UpdateStatement, AlterTableStatement, DeleteStatement, CreateExtensionStatement, CreateSequenceStatement, AlterSequenceStatement, SelectedColumn, Interval, BinaryOperator, ExprBinary, Name, ExprInteger, FromTable, QName } from './ast';
 import { astMapper, IAstMapper } from '../ast-mapper';
@@ -8,6 +9,7 @@ import { toSql, IAstToSql } from '../to-sql';
 import { parseIntervalLiteral } from '../parser';
 import { normalizeInterval } from '../literal-syntaxes/interval-builder';
 import { tracking } from '../lexer';
+import { BlockStatement } from '../plpgsql-syntax/plpgsql-ast';
 
 export function checkSelect(value: string | string[], expected: SelectStatement) {
     checkTree(value, expected, (p, m) => m.statement(p));
@@ -61,7 +63,17 @@ export function checkStatement(value: string | string[], expected: Statement) {
     checkTree(value, expected, (p, m) => m.statement(p));
 }
 
-function hideLocs(val: any): any {
+// plpgsql
+const plpgsqlLang = {
+  rules: plpgsqlGrammar,
+  toSql: undefined,
+  astMapper: undefined
+}
+export function checkBlockStatement(value: string | string[], expected: BlockStatement) {
+  checkTree(value, expected, () => null, undefined, undefined, plpgsqlLang);
+}
+
+export function hideLocs(val: any): any {
     if (!val) {
         return val;
     }
@@ -81,7 +93,7 @@ function hideLocs(val: any): any {
 
 
 
-function deepEqual<T>(a: T, b: T, strict?: boolean, depth = 10, numberDelta = 0.0001) {
+export function deepEqual<T>(a: T, b: T, strict?: boolean, depth = 10, numberDelta = 0.0001) {
     if (depth < 0) {
         throw new Error('Comparing too deep entities');
     }
@@ -143,17 +155,17 @@ function deepEqual<T>(a: T, b: T, strict?: boolean, depth = 10, numberDelta = 0.
 
 declare var __non_webpack_require__: any;
 
-function inspect(elt: any) {
+export function inspect(elt: any) {
     return __non_webpack_require__('util').inspect(elt);
 }
 
-function checkTree<T>(value: string | string[], expected: T, mapper: (parsed: T, m: IAstMapper | IAstToSql) => any, start?: string, checkLocations?: boolean) {
+function checkTree<T>(value: string | string[], expected: T, mapper: (parsed: T, m: IAstMapper | IAstToSql) => any, start?: string, checkLocations?: boolean, lang: {rules: CompiledRules, toSql?: typeof toSql, astMapper?: typeof astMapper} = {rules: grammar, toSql: toSql, astMapper} ) {
     if (typeof value === 'string') {
         value = [value];
     }
     for (const sql of value) {
         it('parses ' + sql, () => {
-            const gram = Grammar.fromCompiled(grammar);
+          const gram = Grammar.fromCompiled(lang.rules);
             if (start) {
                 gram.start = start
             }
@@ -183,9 +195,11 @@ function checkTree<T>(value: string | string[], expected: T, mapper: (parsed: T,
                     ? parsedWithLocations
                     : parsedWithoutTracking;
 
-            // check that it is what we expected
+
+              // check that it is what we expected
             expect(parsed)
-                .to.deep.equal(expected, 'Parser has not returned the expected AST');
+                  .to.deep.equal(expected, 'Parser has not returned the expected AST');
+
 
             // check that top-level statements always have at least some kind of basic position
             assert.exists(parsedWithLocations._location, 'Top level statements must have a location');
@@ -193,46 +207,50 @@ function checkTree<T>(value: string | string[], expected: T, mapper: (parsed: T,
             // check that it generates the same with/without location tracking
             expect(hideLocs(parsedWithLocations)).to.deep.equal(hideLocs(parsedWithoutTracking), 'Parser did not return the same thing with and without location tracking enabled');
 
-            // check that it is stable through ast modifier
-            const modified = mapper(parsed, astMapper(() => ({})));
-            expect(modified).to.equal(parsed, 'It is not stable when passing through a neutral AST mapper -> Should return THE SAME REFERENCE to avoid copying stuff when nothing changed.');
+            if (lang.astMapper){
+              // check that it is stable through ast modifier
+              const modified = mapper(parsed, lang.astMapper(() => ({})));
+              expect(modified).to.equal(parsed, 'It is not stable when passing through a neutral AST mapper -> Should return THE SAME REFERENCE to avoid copying stuff when nothing changed.');
 
-
-            // check that it procuces sql
-            let newSql: string;
-            try {
-                newSql = mapper(parsed, toSql);
-                assert.isString(newSql);
-            } catch (e) {
-                e.message = `⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
-        Failed to generate SQL from the parsed AST
-            => There should be something wrong in to-sql.ts
-⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
-            ${e.message}`;
-                throw e;
             }
 
-            // reparse the generated sql...
-            let reparsed: any;
-            try {
-                assert.isString(newSql);
-                reparsed = checkLocations
-                    ? tracking(() => doParse(newSql))
-                    : doParse(newSql);
-            } catch (e) {
-                e.message = `⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
-        The parsed AST converted-back to SQL generated invalid SQL.
-            => There should be something wrong in to-sql.ts
-⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
-            ${e.message}`;
-                throw e;
-            }
+            if (lang.toSql){
+              // check that it procuces sql
+              let newSql: string;
+              try {
+                  newSql = mapper(parsed, lang.toSql);
+                  assert.isString(newSql);
+              } catch (e) {
+                  e.message = `⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
+          Failed to generate SQL from the parsed AST
+              => There should be something wrong in to-sql.ts
+  ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
+              ${e.message}`;
+                  throw e;
+              }
 
-            // ...and check it still produces the same ast.
-            expect(hideLocs(reparsed)).to.deep.equal(hideLocs(expected), `⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
-    SQL  -> AST  -> SQL transformation is not stable !
-             => This means that the parser is OK, but you might have forgotten to implement something in to-sql.ts
-⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔  `);
+              // reparse the generated sql...
+              let reparsed: any;
+              try {
+                  assert.isString(newSql);
+                  reparsed = checkLocations
+                      ? tracking(() => doParse(newSql))
+                      : doParse(newSql);
+              } catch (e) {
+                  e.message = `⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
+          The parsed AST converted-back to SQL generated invalid SQL.
+              => There should be something wrong in to-sql.ts
+  ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
+              ${e.message}`;
+                  throw e;
+              }
+
+              // ...and check it still produces the same ast.
+              expect(hideLocs(reparsed)).to.deep.equal(hideLocs(expected), `⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
+      SQL  -> AST  -> SQL transformation is not stable !
+              => This means that the parser is OK, but you might have forgotten to implement something in to-sql.ts
+  ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔  `);
+            }
         });
     }
 }
