@@ -5,11 +5,7 @@
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "files": [
-    "src/",
-    "lib/",
-    "tsconfig.json",
-    "webpack.config.js",
-    "nearley-loader.js"
+    "*"
   ],
   "repository": "https://github.com/oguimbal/pgsql-ast-parser",
   "scripts": {
