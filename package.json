@@ -5,7 +5,7 @@
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "files": [
-    "lib/*",
+    "lib/*"
   ],
   "repository": "https://github.com/oguimbal/pgsql-ast-parser",
   "scripts": {
