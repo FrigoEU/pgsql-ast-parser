@@ -5,6 +5,10 @@ array_of[EXP] -> $EXP (%comma $EXP {% last %}):* {% ([head, tail]) => {
     return [unwrap(head), ...(tail.map(unwrap) || [])];
 } %}
 
+opt_paren[X]
+    -> lparen $X rparen {% x => x[1] %}
+    | $X {% ([x]) => x[0] %}
+
 
 # https://www.postgresql.org/docs/current/sql-createview.html
 create_view_statements -> create_view | create_materialized_view
@@ -19,7 +23,7 @@ create_view -> %kw_create
                 (lparen array_of[ident] rparen {% get(1) %}):?
                 create_view_opts:?
                 %kw_as
-                selection
+                opt_paren[selection]
                 (%kw_with (kw_local | kw_cascaded) %kw_check kw_option {% get(1) %}):? {% x => {
                     return track(x, {
                         type: 'create view',
@@ -33,9 +37,6 @@ create_view -> %kw_create
                         ... x[10] && { checkOption: toStr(x[10]) },
                     })
                 } %}
-
-
-
 
 create_view_opt -> ident %op_eq ident {% ([a, _, b]) => [toStr(a), toStr(b)] %}
 
