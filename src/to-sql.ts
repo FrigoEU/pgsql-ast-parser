@@ -39,7 +39,7 @@ function list<T>(elems: T[], act: (e: T) => any, addParen: boolean) {
         }
         first = false;
         act(e);
-    }
+    } 
     if (addParen) {
         ret.push(')');
     }
@@ -651,10 +651,12 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
 
         // ret type
         if (c.returns) {
-            switch (c.returns.kind) {
+            switch (c.returns.type.kind) {
                 case 'table':
-                    ret.push(' RETURNS TABLE ');
-                    list(c.returns.columns, t => {
+                    ret.push( ' RETURNS ');
+                    ret.push(c.returns.setof ? ' SETOF ' : '');
+                    ret.push( ' TABLE ');
+                    list(c.returns.type.columns, t => {
                         ret.push(name(t.name), ' ');
                         m.dataType(t.type);
                     }, true);
@@ -663,10 +665,11 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
                 case null:
                 case 'array':
                     ret.push(' RETURNS ');
-                    m.dataType(c.returns);
+                    ret.push(c.returns.setof ? ' SETOF ' : '');
+                    m.dataType(c.returns.type);
                     break;
                 default:
-                    throw NotSupported.never(c.returns);
+                    throw NotSupported.never(c.returns.type);
             }
         }
 

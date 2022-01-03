@@ -77,11 +77,13 @@ func_purity -> word {%kw('immutable')%}
 
 oninp -> %kw_on %kw_null (word {%kw('input')%})
 
-func_returns -> kw_returns data_type {% last %}
-                | kw_returns %kw_table lparen array_of[func_ret_table_col] rparen {% x => track(x, {
-                    kind: 'table',
-                    columns: x[3],
-                }) %}
+func_returns -> kw_returns kw_setof:? data_type {% x => ({setof: !!x[1], type: track(x, x[2])}) %}
+                | kw_returns kw_setof:? %kw_table lparen array_of[func_ret_table_col] rparen {% x => ({
+                  setof: !!x[1],
+                  type: track(x, {
+                      kind: 'table',
+                      columns: x[4],
+                  })}) %}
 
 func_ret_table_col -> word data_type {% x => track(x, {name: asName(x[0]), type: x[1]}) %}
 

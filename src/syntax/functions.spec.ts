@@ -23,8 +23,24 @@ describe('Create function', () => {
         language: { name: 'sql' },
         purity: 'immutable',
         onNullInput: 'null',
-        returns: integer,
+        returns: {setof: false, type: integer},
     });
+
+  checkStatement(`CREATE FUNCTION add(integer, integer) RETURNS integer
+    AS 'select $1 + $2;'
+    LANGUAGE SQL
+    IMMUTABLE
+    RETURNS NULL ON NULL INPUT`, {
+        type: 'create function',
+        name: { name: 'add' },
+        arguments: [{ type: integer }, { type: integer }],
+        code: 'select $1 + $2;',
+        language: { name: 'sql' },
+        purity: 'immutable',
+        onNullInput: 'null',
+        returns: {setof: false, type: integer},
+    });
+
 
     checkStatement(`CREATE FUNCTION fn(in integer) AS 'code' LANGUAGE SQL`, {
         type: 'create function',
@@ -59,7 +75,7 @@ $$ VOLATILE LANGUAGE plpgsql`, {
         name: { name: 'increment' },
         orReplace: true,
         arguments: [{ type: integer, name: { name: 'i' } }],
-        returns: integer,
+        returns: { setof: false, type: integer},
         language: { name: 'plpgsql' },
         purity: 'volatile',
         code: `
@@ -91,7 +107,7 @@ $$ VOLATILE LANGUAGE plpgsql`, {
         code: ` SELECT $1, CAST($1 AS text) || ' is text' `,
     });
 
-    checkStatement(`CREATE FUNCTION public.dup(int) RETURNS TABLE(f1 int, f2 text)
+    checkStatement(`CREATE FUNCTION public.dup(int) RETURNS SETOF TABLE(f1 int, f2 text)
     AS $$ SELECT $1, CAST($1 AS text) || ' is text' $$
     LANGUAGE SQL`, {
         type: 'create function',
@@ -100,14 +116,17 @@ $$ VOLATILE LANGUAGE plpgsql`, {
         arguments: [{ type: int }],
         code: ` SELECT $1, CAST($1 AS text) || ' is text' `,
         returns: {
-            kind: 'table',
-            columns: [{
-                name: { name: 'f1' },
-                type: int
-            }, {
-                name: { name: 'f2' },
-                type: text,
-            }],
+            setof: true,
+            type: {
+                kind: 'table',
+                columns: [{
+                    name: { name: 'f1' },
+                    type: int
+                }, {
+                    name: { name: 'f2' },
+                    type: text,
+                }],
+            }
         }
     });
 

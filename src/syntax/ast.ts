@@ -72,7 +72,7 @@ export interface CreateFunctionStatement extends PGNode {
     orReplace?: boolean;
     language?: Name;
     arguments: FunctionArgument[];
-    returns?: DataTypeDef | ReturnsTable;
+    returns?: { setof: boolean, type: DataTypeDef | ReturnsTable };
     purity?: 'immutable' | 'stable' | 'volatile';
     leakproof?: boolean;
     onNullInput?: 'call' | 'null' | 'strict';
