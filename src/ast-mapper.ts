@@ -335,22 +335,21 @@ export class AstDefaultMapper implements IAstMapper {
         if (val.returns) {
             switch (val.returns.type.kind) {
                 case 'table':
-                    returns = {
-                        setof: val.returns.setof,
+                    returns = assignChanged(val.returns, {
                         type: assignChanged(val.returns.type, {
-                              columns: arrayNilMap(val.returns.type.columns, v => {
-                                  const type = this.dataType(v.type);
-                                  return type && assignChanged(v, { type })
-                              })
-                          })};
+                            columns: arrayNilMap(val.returns.type.columns, v => {
+                                const type = this.dataType(v.type);
+                                return type && assignChanged(v, { type })
+                            })
+                        })}
+                    );
                     break;
                 case undefined:
                 case null:
                 case 'array':
-                    returns = {
-                        setof: val.returns.setof,
+                    returns = assignChanged(val.returns, {
                         type: this.dataType(val.returns.type)
-                    };
+                    });
                     break;
                 default:
                     throw NotSupported.never(val.returns.type);

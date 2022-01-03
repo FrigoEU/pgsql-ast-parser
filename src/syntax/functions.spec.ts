@@ -107,7 +107,7 @@ $$ VOLATILE LANGUAGE plpgsql`, {
         code: ` SELECT $1, CAST($1 AS text) || ' is text' `,
     });
 
-    checkStatement(`CREATE FUNCTION public.dup(int) RETURNS SETOF TABLE(f1 int, f2 text)
+    checkStatement(`CREATE FUNCTION public.dup(int) RETURNS TABLE(f1 int, f2 text)
     AS $$ SELECT $1, CAST($1 AS text) || ' is text' $$
     LANGUAGE SQL`, {
         type: 'create function',

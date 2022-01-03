@@ -653,9 +653,7 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
         if (c.returns) {
             switch (c.returns.type.kind) {
                 case 'table':
-                    ret.push( ' RETURNS ');
-                    ret.push(c.returns.setof ? ' SETOF ' : '');
-                    ret.push( ' TABLE ');
+                    ret.push( ' RETURNS TABLE ');
                     list(c.returns.type.columns, t => {
                         ret.push(name(t.name), ' ');
                         m.dataType(t.type);
