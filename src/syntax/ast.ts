@@ -14,6 +14,7 @@ export type Statement = SelectStatement
     | CreateSequenceStatement
     | CreateIndexStatement
     | CreateExtensionStatement
+    | CreateDomainStatement
     | CommitStatement
     | InsertStatement
     | UpdateStatement
@@ -355,6 +356,12 @@ export interface CreateExtensionStatement extends PGNode {
     schema?: Name;
     version?: Literal;
     from?: Literal;
+}
+
+export interface CreateDomainStatement extends PGNode {
+  type: 'create domain';
+  name: Name;
+  dataType: DataTypeDef;
 }
 
 export interface IndexExpression extends PGNode {

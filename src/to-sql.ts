@@ -264,6 +264,13 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
         }
     },
 
+    createDomain: d => {
+        ret.push('CREATE DOMAIN ');
+        ret.push(name(d.name));
+        ret.push(' AS ');
+        m.dataType(d.dataType);
+    },
+
     tablespace: t => {
         ret.push('TABLESPACE ', name(t.tablespace));
     },

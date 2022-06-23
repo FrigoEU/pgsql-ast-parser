@@ -10,6 +10,7 @@ import {lexerAny} from '../lexer';
 @include "create-table.ne"
 @include "create-index.ne"
 @include "create-extension.ne"
+@include "create-domain.ne"
 @include "simple-statements.ne"
 @include "insert.ne"
 @include "update.ne"
@@ -44,6 +45,7 @@ statement_noprep
     -> selection
     | createtable_statement
     | createextension_statement
+    | createdomain_statement
     | createindex_statement
     | simplestatements_all
     | insert_statement

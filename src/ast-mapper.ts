@@ -21,6 +21,7 @@ export interface IAstPartialMapper {
     createTable?: (val: a.CreateTableStatement) => a.Statement | nil
     truncateTable?: (val: a.TruncateTableStatement) => a.Statement | nil
     createExtension?: (val: a.CreateExtensionStatement) => a.Statement | nil
+    createDomain?: (val: a.CreateDomainStatement) => a.Statement | nil
     set?: (st: a.SetStatement) => a.SetStatement | nil
     dataType?: (dataType: a.DataTypeDef) => a.DataTypeDef
     prepare?: (st: a.PrepareStatement) => a.Statement | nil
@@ -235,6 +236,8 @@ export class AstDefaultMapper implements IAstMapper {
                 return this.update(val);
             case 'create extension':
                 return this.createExtension(val);
+            case 'create domain':
+                return this.createDomain(val);
             case 'tablespace':
                 return this.tablespace(val);
             case 'set':
@@ -602,6 +605,11 @@ export class AstDefaultMapper implements IAstMapper {
 
     createExtension(val: a.CreateExtensionStatement): a.Statement | nil {
         return val;
+    }
+
+    createDomain(val: a.CreateDomainStatement): a.Statement | nil {
+        const dataType = this.dataType(val.dataType);
+        return assignChanged(val, {dataType});
     }
 
     createIndex(val: a.CreateIndexStatement): a.Statement | nil {

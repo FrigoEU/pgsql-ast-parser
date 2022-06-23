@@ -134,6 +134,7 @@ kw_exists -> %word {% notReservedKw('exists')  %}
 kw_key -> %word {% notReservedKw('key')  %}
 kw_index -> %word {% notReservedKw('index')  %}
 kw_extension -> %word {% notReservedKw('extension')  %}
+kw_domain -> %word {% notReservedKw('domain')  %}
 kw_schema -> %word {% notReservedKw('schema')  %}
 kw_nulls -> %word {% notReservedKw('nulls')  %}
 kw_first -> %word {% notReservedKw('first')  %}

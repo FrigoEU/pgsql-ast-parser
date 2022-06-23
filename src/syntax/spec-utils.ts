@@ -3,7 +3,7 @@ import { expect, assert } from 'chai';
 import grammar from '../syntax/main.ne';
 import plpgsqlGrammar from '../plpgsql-syntax/plpgsql.ne';
 import { trimNullish } from '../utils';
-import { Expr, SelectStatement, CreateTableStatement, CreateIndexStatement, Statement, InsertStatement, UpdateStatement, AlterTableStatement, DeleteStatement, CreateExtensionStatement, CreateSequenceStatement, AlterSequenceStatement, SelectedColumn, Interval, BinaryOperator, ExprBinary, Name, ExprInteger, FromTable, QName } from './ast';
+import { Expr, SelectStatement, CreateTableStatement, CreateDomainStatement, CreateIndexStatement, Statement, InsertStatement, UpdateStatement, AlterTableStatement, DeleteStatement, CreateExtensionStatement, CreateSequenceStatement, AlterSequenceStatement, SelectedColumn, Interval, BinaryOperator, ExprBinary, Name, ExprInteger, FromTable, QName } from './ast';
 import { astMapper, IAstMapper } from '../ast-mapper';
 import { toSql, IAstToSql } from '../to-sql';
 import { parseIntervalLiteral } from '../parser';
@@ -36,6 +36,10 @@ export function checkAlterSequence(value: string | string[], expected: AlterSequ
 }
 
 export function checkCreateExtension(value: string | string[], expected: CreateExtensionStatement) {
+    checkTree(value, expected, (p, m) => m.statement(p));
+}
+
+export function checkCreateDomain(value: string | string[], expected: CreateDomainStatement) {
     checkTree(value, expected, (p, m) => m.statement(p));
 }
 
@@ -211,7 +215,6 @@ function checkTree<T>(value: string | string[], expected: T, mapper: (parsed: T,
               // check that it is stable through ast modifier
               const modified = mapper(parsed, lang.astMapper(() => ({})));
               expect(modified).to.equal(parsed, 'It is not stable when passing through a neutral AST mapper -> Should return THE SAME REFERENCE to avoid copying stuff when nothing changed.');
-
             }
 
             if (lang.toSql){
