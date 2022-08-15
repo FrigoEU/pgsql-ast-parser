@@ -581,7 +581,7 @@ line`,
     // ====================================
 
     describe('Cast', () => {
-        checkTreeExpr(['a + b::jsonb', 'a + b::JSONB', '"a"+"b"::"jsonb"'], {
+        checkTreeExpr(['a + b::jsonb', 'a + b::JSONB'], {
             type: 'binary',
             op: '+',
             left: {
@@ -673,7 +673,7 @@ line`,
             },
             right: {
                 type: 'cast',
-                to: { name: 'JSONB' },
+                to: { name: 'JSONB', doubleQuoted: true },
                 operand: {
                     type: 'ref',
                     name: 'b',
@@ -681,7 +681,24 @@ line`,
             },
         });
 
-        checkTreeExpr(['(a + b)::jsonb', '(a + b)::"jsonb"'], {
+        checkTreeExpr(['(a + b)::"jsonb"'], {
+            type: 'cast',
+            to: { name: 'jsonb', doubleQuoted: true },
+            operand: {
+                type: 'binary',
+                op: '+',
+                left: {
+                    type: 'ref',
+                    name: 'a',
+                },
+                right: {
+                    type: 'ref',
+                    name: 'b',
+                }
+            },
+        });
+
+        checkTreeExpr(['(a + b)::jsonb'], {
             type: 'cast',
             to: { name: 'jsonb' },
             operand: {
@@ -695,6 +712,19 @@ line`,
                     type: 'ref',
                     name: 'b',
                 }
+            },
+        });
+
+        checkTreeExpr(`('now'::text)::timestamp(4) with time zone`, {
+            type: 'cast',
+            to: {
+                name: 'timestamp with time zone',
+                config: [4],
+            },
+            operand: {
+                type: 'cast',
+                to: { name: 'text' },
+                operand: { type: 'string', value: 'now' },
             },
         });
     });
@@ -1151,6 +1181,33 @@ line`,
             }],
         });
 
+        checkTreeExprLoc([`some(c)`], { // alias for any
+            _location: { start: 0, end: 7 },
+            type: 'call',
+            function: {
+                _location: { start: 0, end: 4 },
+                name: 'some'
+            },
+            args: [{
+                _location: { start: 5, end: 6 },
+                type: 'ref',
+                name: 'c'
+            }],
+        });
+
+        checkTreeExprLoc([`all(c)`], {
+            _location: { start: 0, end: 6 },
+            type: 'call',
+            function: {
+                _location: { start: 0, end: 3 },
+                name: 'all'
+            },
+            args: [{
+                _location: { start: 4, end: 5 },
+                type: 'ref',
+                name: 'c'
+            }],
+        });
 
         checkTreeExprLoc([`now()`], {
             _location: { start: 0, end: 5 },

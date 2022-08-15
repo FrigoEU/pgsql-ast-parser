@@ -19,27 +19,29 @@ export type Statement = SelectStatement
     | UpdateStatement
     | ShowStatement
     | PrepareStatement
+    | DeallocateStatement
     | DeleteStatement
     | WithStatement
     | RollbackStatement
     | TablespaceStatement
     | CreateViewStatement
     | CreateMaterializedViewStatement
+    | RefreshMaterializedViewStatement
     | AlterTableStatement
     | AlterSequenceStatement
     | SetGlobalStatement
     | SetTimezone
     | CreateEnumType
+    | CreateCompositeType
     | TruncateTableStatement
-    | DropTableStatement
-    | DropSequenceStatement
-    | DropIndexStatement
+    | DropStatement
     | CommentStatement
     | CreateSchemaStatement
     | WithRecursiveStatement
     | RaiseStatement
     | ValuesStatement
     | CreateFunctionStatement
+    | DropFunctionStatement
     | DoStatement
     | BeginStatement
     | StartTransactionStatement;
@@ -68,7 +70,7 @@ export interface DoStatement extends PGNode {
 export interface CreateFunctionStatement extends PGNode {
     type: 'create function';
     name: QName;
-    code: string;
+    code?: string;
     orReplace?: boolean;
     language?: Name;
     arguments: FunctionArgument[];
@@ -76,6 +78,13 @@ export interface CreateFunctionStatement extends PGNode {
     purity?: 'immutable' | 'stable' | 'volatile';
     leakproof?: boolean;
     onNullInput?: 'call' | 'null' | 'strict';
+}
+
+export interface DropFunctionStatement extends PGNode {
+    type: 'drop function';
+    ifExists?: boolean;
+    name: QName;
+    arguments?: { name?: Name; type: DataTypeDef }[];
 }
 
 export interface ReturnsTable extends PGNode {
@@ -139,10 +148,31 @@ export interface PrepareStatement extends PGNode {
     statement: Statement;
 }
 
+export interface DeallocateStatement extends PGNode {
+    type: 'deallocate';
+    target: Name | DeallocateStatementOpt;
+}
+
+export interface DeallocateStatementOpt extends PGNode {
+    option: 'all';
+}
+
 export interface CreateEnumType extends PGNode {
     type: 'create enum',
     name: QName;
     values: Literal[];
+}
+
+export interface CreateCompositeType extends PGNode {
+    type: 'create composite type';
+    name: QName;
+    attributes: CompositeTypeAttribute[];
+}
+
+export interface CompositeTypeAttribute extends PGNode {
+    name: Name;
+    dataType: DataTypeDef;
+    collate?: Name;
 }
 
 export interface Literal extends PGNode {
@@ -159,23 +189,14 @@ export interface TruncateTableStatement extends PGNode {
     type: 'truncate table';
     tables: QName[];
     identity?: 'restart' | 'continue';
-}
-export interface DropTableStatement extends PGNode {
-    type: 'drop table';
-    name: QName;
-    ifExists?: boolean;
+    cascade?: 'cascade' | 'restrict';
 }
 
-export interface DropSequenceStatement extends PGNode {
-    type: 'drop sequence';
-    name: QName;
+export interface DropStatement extends PGNode {
+    type: 'drop table' | 'drop sequence' | 'drop index' | 'drop type';
+    names: QName[];
     ifExists?: boolean;
-}
-
-export interface DropIndexStatement extends PGNode {
-    type: 'drop index';
-    name: QName;
-    ifExists?: boolean;
+    cascade?: 'cascade' | 'restrict';
     concurrently?: boolean;
 }
 
@@ -224,6 +245,7 @@ export interface OnConflictAction extends PGNode {
     do: 'do nothing' | {
         sets: SetStatement[];
     };
+    where?: Expr;
 }
 
 export interface AlterTableStatement extends PGNode {
@@ -231,7 +253,7 @@ export interface AlterTableStatement extends PGNode {
     table: QNameAliased;
     only?: boolean;
     ifExists?: boolean;
-    change: TableAlteration;
+    changes: TableAlteration[];
 }
 
 export interface TableAlterationRename extends PGNode {
@@ -261,6 +283,13 @@ export interface TableAlterationDropColumn extends PGNode {
     column: Name;
 }
 
+export interface TableAlterationDropConstraint extends PGNode {
+    type: 'drop constraint';
+    ifExists?: boolean;
+    constraint: Name;
+    behaviour?: 'cascade' | 'restrict';
+}
+
 export interface TableAlterationAlterColumn extends PGNode {
     type: 'alter column',
     column: Name;
@@ -280,6 +309,7 @@ export type TableAlteration = TableAlterationRename
     | TableAlterationAlterColumn
     | TableAlterationAddConstraint
     | TableAlterationOwner
+    | TableAlterationDropConstraint
 
 
 export interface TableAlterationOwner extends PGNode {
@@ -343,9 +373,17 @@ export interface CreateIndexStatement extends PGNode {
     table: QName;
     using?: Name;
     expressions: IndexExpression[];
+    where?: Expr;
     unique?: true;
     ifNotExists?: true;
     indexName?: Name;
+    tablespace?: string;
+    with?: CreateIndexWith[];
+}
+
+export interface CreateIndexWith extends PGNode {
+    parameter: string;
+    value: string;
 }
 
 export interface CreateExtensionStatement extends PGNode {
@@ -387,6 +425,13 @@ export interface CreateMaterializedViewStatement extends CreateViewStatementBase
     ifNotExists?: boolean;
 }
 
+export interface RefreshMaterializedViewStatement extends PGNode {
+    type: 'refresh materialized view';
+    name: QName;
+    concurrently?: boolean;
+    withData?: boolean;
+}
+
 
 export interface CreateTableStatement extends PGNode {
     type: 'create table';
@@ -424,6 +469,9 @@ export interface Name extends PGNode {
     name: string;
 }
 
+export interface TableAliasName extends Name, PGNode {
+    columns?: Name[];
+}
 
 export interface QName extends Name, PGNode {
     schema?: string;
@@ -444,6 +492,8 @@ export interface ArrayDataTypeDef extends PGNode {
 
 export interface BasicDataTypeDef extends QName, PGNode {
     kind?: undefined;
+    /** Allows to differenciate types like 'double precision' from their double-quoted counterparts */
+    doubleQuoted?: true;
     /** varchar(length), numeric(precision, scale), ... */
     config?: number[];
 }
@@ -452,6 +502,7 @@ export type ColumnConstraint
     = ColumnConstraintSimple
     | ColumnConstraintDefault
     | AlterColumnAddGenerated
+    | ColumnConstraintReference
     | ColumnConstraintCheck;
 
 export interface ColumnConstraintSimple extends PGNode {
@@ -462,15 +513,23 @@ export interface ColumnConstraintSimple extends PGNode {
     constraintName?: Name;
 }
 
+export interface ColumnConstraintReference extends TableReference, PGNode {
+    type: 'reference';
+    constraintName?: Name;
+}
+
 export interface ColumnConstraintDefault extends PGNode {
     type: 'default';
     default: Expr;
     constraintName?: Name;
 }
 
-export interface ColumnConstraintForeignKey extends PGNode {
+export interface ColumnConstraintForeignKey extends TableReference, PGNode {
     type: 'foreign key';
     constraintName?: Name;
+}
+
+export interface TableReference {
     foreignTable: QName;
     foreignColumns: Name[];
     onDelete?: ConstraintAction;
@@ -542,6 +601,7 @@ export interface SelectFromStatement extends PGNode {
     limit?: LimitStatement | nil;
     orderBy?: OrderByStatement[] | nil;
     distinct?: 'all' | 'distinct' | Expr[] | nil;
+    for?: ForStatement;
 }
 
 export interface SelectFromUnion extends PGNode {
@@ -553,6 +613,11 @@ export interface SelectFromUnion extends PGNode {
 export interface OrderByStatement extends PGNode {
     by: Expr;
     order?: 'ASC' | 'DESC' | nil;
+    nulls?: 'FIRST' | 'LAST' | nil;
+}
+
+export interface ForStatement extends PGNode {
+    type: 'update' | 'no key update' | 'share' | 'key share';
 }
 
 export interface LimitStatement extends PGNode {
@@ -566,12 +631,13 @@ export interface UpdateStatement extends PGNode {
     table: QNameAliased;
     sets: SetStatement[];
     where?: Expr | nil;
+    from?: From | nil;
     returning?: SelectedColumn[] | nil;
 }
 
 export interface SetStatement extends PGNode {
     column: Name;
-    value: Expr | 'default';
+    value: Expr;
 }
 
 export interface SelectedColumn extends PGNode {
@@ -585,8 +651,9 @@ export type From = FromTable
 
 
 export interface FromCall extends ExprCall, PGNode {
-    alias?: Name;
+    alias?: TableAliasName;
     join?: JoinClause | nil;
+    withOrdinality?: boolean;
 };
 
 
@@ -630,7 +697,8 @@ export interface JoinClause extends PGNode {
 export type JoinType = 'INNER JOIN'
     | 'LEFT JOIN'
     | 'RIGHT JOIN'
-    | 'FULL JOIN';
+    | 'FULL JOIN'
+    | 'CROSS JOIN';
 
 export type Expr = ExprRef
     | ExprParameter
@@ -687,12 +755,14 @@ export type MathOpsBinary = '|' | '&' | '>>' | '^' | '#' | '<<' | '>>';
 export type ComparisonOperator = '>' | '>=' | '<' | '<=' | '@>' | '<@' | '?' | '?|' | '?&' | '#>>' | '~';
 export type AdditiveOperator = '||' | '-' | '#-' | '&&' | '+';
 export type MultiplicativeOperator = '*' | '%' | '/';
+export type ConstructOperator = 'AT TIME ZONE';
 export type BinaryOperator = LogicOperator
     | EqualityOperator
     | ComparisonOperator
     | AdditiveOperator
     | MultiplicativeOperator
-    | MathOpsBinary;
+    | MathOpsBinary
+    | ConstructOperator;
 
 export interface ExprBinary extends PGNode {
     type: 'binary';
@@ -886,6 +956,7 @@ type SetGlobalValueRaw = {
     value: number | string;
 } | {
     type: 'identifier',
+    doubleQuoted?: true;
     name: string;
 };
 export type SetGlobalValue

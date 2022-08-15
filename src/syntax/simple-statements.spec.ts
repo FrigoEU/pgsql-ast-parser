@@ -218,6 +218,17 @@ describe('Simple statements', () => {
         assert.deepEqual(comments.map(c => c.comment), ['/* comment a */ ', '/* comment b */ '])
     });
 
+    // https://www.postgresql.org/docs/13/sql-syntax-lexical.html#SQL-SYNTAX-COMMENTS
+    it('can fetch nested comments', () => {
+        const { ast, comments } = parseWithComments('select /* comment /* nest */ a */ * from /* comment /* nest1 /* nest2 */ */ b */ tbl');
+        assert.deepEqual(ast, [{
+            type: 'select',
+            columns: [{ expr: { type: 'ref', name: '*' } }],
+            from: [tbl('tbl')],
+        }]);
+        assert.deepEqual(comments.map(c => c.comment), ['/* comment /* nest */ a */ ', '/* comment /* nest1 /* nest2 */ */ b */ '])
+    });
+
 
     checkStatement(`begin isolation level read uncommitted isolation level read committed read write`, {
         type: 'begin',
@@ -274,9 +285,16 @@ describe('Simple statements', () => {
                 columns: [{ expr: ref('a') }, { expr: ref('b') }],
                 from: [tbl('mytable')],
             },
-            alias:'myAlias',
+            alias: 'myAlias',
             columnNames: [name('x'), name('y')],
         }]
     });
 
+
+    // bugfix (Cannot select column named column) https://github.com/oguimbal/pgsql-ast-parser/issues/67
+    checkStatement(`SELECT something AS column FROM whatever`, {
+        type: 'select',
+        columns: [{ expr: ref('something'), alias: { name: 'column' } }],
+        from: [tbl('whatever')],
+    });
 });

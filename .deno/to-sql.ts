@@ -1,7 +1,7 @@
 import { IAstPartialMapper, AstDefaultMapper } from './ast-mapper.ts';
 import { astVisitor, IAstVisitor, IAstFullVisitor } from './ast-visitor.ts';
 import { NotSupported, nil, ReplaceReturnType, NoExtraProperties } from './utils.ts';
-import { TableConstraint, JoinClause, ColumnConstraint, AlterSequenceStatement, CreateSequenceStatement, AlterSequenceSetOptions, CreateSequenceOptions, QName, SetGlobalValue, AlterColumnAddGenerated, QColumn, Name, OrderByStatement } from './syntax/ast.ts';
+import { TableConstraint, JoinClause, ColumnConstraint, AlterSequenceStatement, CreateSequenceStatement, AlterSequenceSetOptions, CreateSequenceOptions, QName, SetGlobalValue, AlterColumnAddGenerated, QColumn, Name, OrderByStatement, QNameAliased } from './syntax/ast.ts';
 import { literal } from './pg-escape.ts';
 import { sqlKeywords } from './keywords.ts';
 
@@ -19,11 +19,13 @@ function name<T extends Name>(nm: NoExtraProperties<Name, T>) {
     return ident(nm.name);
 }
 
-function ident(nm: string) {
-    // only add quotes if has upper cases, or if it is a keyword.
-    const low = nm.toLowerCase();
-    if (low === nm && !kwSet.has(low) && /^[a-z][a-z0-9_]*$/.test(low)) {
-        return nm;
+function ident(nm: string, forceDoubleQuote?: boolean) {
+    if (!forceDoubleQuote) {
+        // only add quotes if has upper cases, or if it is a keyword.
+        const low = nm.toLowerCase();
+        if (low === nm && !kwSet.has(low) && /^[a-z][a-z0-9_]*$/.test(low)) {
+            return nm;
+        }
     }
     return '"' + nm + '"';
 }
@@ -47,12 +49,14 @@ function list<T>(elems: T[], act: (e: T) => any, addParen: boolean) {
 
 
 function addConstraint(c: ColumnConstraint | TableConstraint, m: IAstVisitor) {
-    ret.push(c.type);
     switch (c.type) {
         case 'foreign key':
-            ret.push('('
+            ret.push(' foreign key ('
                 , ...c.localColumns.map(name).join(', ')
-                , ') REFERENCES ');
+                , ')');
+        // 👈 There is no "break" here... that's not an error, we want to fall throught the 'reference' case
+        case 'reference':
+            ret.push(' REFERENCES ');
             m.tableRef(c.foreignTable);
             ret.push('('
                 , ...c.foreignColumns.map(name).join(', ')
@@ -69,6 +73,7 @@ function addConstraint(c: ColumnConstraint | TableConstraint, m: IAstVisitor) {
             break;
         case 'primary key':
         case 'unique':
+            ret.push(' ', c.type, ' ');
             if ('columns' in c) {
                 ret.push('('
                     , ...c.columns.map(name).join(', ')
@@ -76,13 +81,15 @@ function addConstraint(c: ColumnConstraint | TableConstraint, m: IAstVisitor) {
             }
             break;
         case 'check':
+            ret.push(' check ');
             m.expr(c.expr);
             break;
         case 'not null':
         case 'null':
+            ret.push(' ', c.type, ' ');
             break;
         case 'default':
-            ret.push(' DEFAULT ');
+            ret.push(' default ');
             m.expr(c.default);
             break;
         case 'add generated':
@@ -92,12 +99,20 @@ function addConstraint(c: ColumnConstraint | TableConstraint, m: IAstVisitor) {
         default:
             throw NotSupported.never(c)
     }
+    ret.push(' ');
 }
-function visitQualifiedName(cs: QName) {
+function visitQualifiedName(cs: QName, forceDoubleQuote?: boolean) {
     if (cs.schema) {
         ret.push(ident(cs.schema), '.');
     }
-    ret.push(ident(cs.name), ' ');
+    ret.push(ident(cs.name, forceDoubleQuote), ' ');
+}
+
+function visitQualifiedNameAliased(cs: QNameAliased) {
+    visitQualifiedName(cs);
+    if (cs.alias) {
+        ret.push(' AS ', ident(cs.alias), ' ');
+    }
 }
 
 function visitOrderBy(m: IAstVisitor, orderBy: OrderByStatement[]) {
@@ -105,7 +120,10 @@ function visitOrderBy(m: IAstVisitor, orderBy: OrderByStatement[]) {
     list(orderBy, e => {
         m.expr(e.by);
         if (e.order) {
-            ret.push(' ', e.order);
+            ret.push(' ', e.order, ' ');
+        }
+        if (e.nulls) {
+            ret.push(' NULLS ', e.nulls, ' ')
         }
     }, false);
 }
@@ -298,6 +316,21 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
         ret.push(' ');
     },
 
+    createCompositeType: c => {
+        ret.push('CREATE TYPE ');
+        visitQualifiedName(c.name);
+        ret.push(' AS ');
+        list(c.attributes, x => {
+            ret.push(name(x.name), ' ');
+            m.dataType(x.dataType);
+            if (x.collate) {
+                ret.push('COLLATE ');
+                visitQualifiedName(x.collate);
+            }
+        }, true);
+        ret.push(' ');
+    },
+
     setTableOwner: o => {
         ret.push(' OWNER TO ', name(o.to));
     },
@@ -325,7 +358,33 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
         if (t.only) {
             ret.push(' ONLY ');
         }
-        m.super().alterTable(t);
+        visitQualifiedNameAliased(t.table);
+        list(t.changes, change => m.tableAlteration(change, t.table), false);
+    },
+
+    tableAlteration: (change, table) => {
+        switch (change.type) {
+            case 'add column':
+                return m.addColumn(change, table);
+            case 'add constraint':
+                return m.addConstraint(change, table);
+            case 'alter column':
+                return m.alterColumn(change, table);
+            case 'rename':
+                return m.renameTable(change, table);
+            case 'rename column':
+                return m.renameColumn(change, table);
+            case 'rename constraint':
+                return m.renameConstraint(change, table);
+            case 'drop column':
+                return m.dropColumn(change, table);
+            case 'drop constraint':
+                return m.dropConstraint(change, table);
+            case 'owner':
+                return m.setTableOwner(change, table);
+            default:
+                throw NotSupported.never(change);
+        }
     },
 
     array: v => {
@@ -568,57 +627,25 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
     },
 
 
-    dropTable: val => {
-        ret.push('DROP TABLE ');
-        if (val.ifExists) {
-            ret.push('IF EXISTS ');
-        }
-        m.tableRef(val.name);
-    },
-    dropIndex: val => {
-        ret.push('DROP INDEX ');
+    drop: val => {
+        ret.push(val.type.toUpperCase(), ' ');
         if (val.concurrently) {
             ret.push('CONCURRENTLY ');
         }
         if (val.ifExists) {
             ret.push('IF EXISTS ');
         }
-        m.tableRef(val.name);
-    },
-    dropSequence: val => {
-        ret.push('DROP SEQUENCE ');
-        if (val.ifExists) {
-            ret.push('IF EXISTS ');
+        list(val.names, x => m.tableRef(x), false);
+        if (val.cascade) {
+            ret.push(val.cascade.toUpperCase(), ' ');
         }
-        m.tableRef(val.name);
     },
 
     constraint: cst => {
         if (cst.constraintName) {
             ret.push(' CONSTRAINT ', name(cst.constraintName), ' ');
         }
-        switch (cst.type) {
-            case 'not null':
-            case 'null':
-            case 'primary key':
-            case 'unique':
-                ret.push(' ', cst.type, ' ');
-                return;
-            case 'default':
-                ret.push(' DEFAULT ');
-                m.expr(cst.default);
-                break;
-            case 'check':
-                ret.push(' CHECK ');
-                m.expr(cst.expr);
-                break;
-            case 'add generated':
-                ret.push(' GENERATED ');
-                visitGenerated(m, cst);
-                break;
-            default:
-                throw NotSupported.never(cst);
-        }
+        addConstraint(cst, m);
     },
 
     do: d => {
@@ -643,6 +670,10 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
                 ret.push(name(a.name), ' ');
             }
             m.dataType(a.type);
+            if (a.default) {
+                ret.push(" = ");
+                m.expr(a.default);
+            }
         }, true);
 
         // ret type
@@ -666,7 +697,7 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
             }
         }
 
-        ret.push(' AS $$', c.code, '$$');
+        ret.push(' AS $$', c.code ?? '', '$$');
 
         // function settings
         if (c.language) {
@@ -694,6 +725,26 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
             default:
                 throw NotSupported.never(c.onNullInput);
         }
+    },
+
+
+    dropFunction: d => {
+        ret.push('DROP FUNCTION ');
+        if (d.ifExists) {
+            ret.push('IF EXISTS ');
+        }
+        visitQualifiedName(d.name);
+
+        if (d.arguments) {
+            list(d.arguments, a => {
+                if (a.name) {
+                    visitQualifiedName(a.name);
+                    ret.push(' ');
+                }
+                m.dataType(a.type);
+            }, true);
+        }
+        ret.push(' ');
     },
 
     with: w => {
@@ -754,28 +805,44 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
             ret.push('unkown');
             return;
         }
+        let appendConfig = true;
         if (d.schema) {
-            visitQualifiedName(d);
+            visitQualifiedName(d, d.doubleQuoted);
         } else {
             // see https://www.postgresql.org/docs/13/datatype.html
             // & issue https://github.com/oguimbal/pgsql-ast-parser/issues/38
-            switch (d.name) {
-                case 'double precision':
-                case 'character varying':
-                case 'bit varying':
-                case 'time without time zone':
-                case 'timestamp without time zone':
-                case 'time with time zone':
-                case 'timestamp with time zone':
-                    ret.push(d.name, ' ');
-                    break;
-                default:
-                    visitQualifiedName(d);
-                    break;
+            if (d.doubleQuoted) {
+                visitQualifiedName(d, true);
+            } else {
+                switch (d.name) {
+                    case 'double precision':
+                    case 'character varying':
+                    case 'bit varying':
+                        ret.push(d.name, ' ');
+                        break;
+                    case 'time without time zone':
+                    case 'timestamp without time zone':
+                    case 'time with time zone':
+                    case 'timestamp with time zone':
+                        const parts = d.name.split(' ');
+
+                        ret.push(parts.shift()!);
+                        if (d.config?.length) {
+                            list(d.config, v => ret.push(v.toString(10)), true);
+                        }
+                        ret.push(' ');
+
+                        ret.push(parts.join(' '), ' ');
+                        appendConfig = false;
+                        break;
+                    default:
+                        visitQualifiedName(d);
+                        break;
+                }
             }
         }
 
-        if (d.config?.length) {
+        if (appendConfig && d.config?.length) {
             list(d.config, v => ret.push(v.toString(10)), true);
         }
     },
@@ -810,18 +877,31 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
                 ret.push('nulls ', e.nulls, ' ');
             }
         }, true);
+        if (c.with) {
+            ret.push('WITH ');
+            list(c.with, w => {
+                ret.push(w.parameter, ' = ', literal(w.value));
+            }, true);
+        }
+        if (c.tablespace) {
+            ret.push('TABLESPACE ', ident(c.tablespace));
+        }
+        if (c.where) {
+            ret.push(' WHERE ');
+            m.expr(c.where);
+        }
         ret.push(' ');
     },
 
     createTable: t => {
         ret.push('CREATE ');
-        if(t.locality) {
+        if (t.locality) {
             ret.push(t.locality.toUpperCase(), ' ');
         }
         if (t.temporary) {
             ret.push('TEMPORARY ');
         }
-        if(t.unlogged) {
+        if (t.unlogged) {
             ret.push('UNLOGGED ');
         }
         ret.push(t.ifNotExists ? 'TABLE IF NOT EXISTS ' : 'TABLE ');
@@ -888,6 +968,9 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
                     break;
             }
         }
+        if (t.cascade) {
+            ret.push(' ', t.cascade, ' ');
+        }
     },
 
     delete: t => {
@@ -913,14 +996,39 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
         ret.push(name(t.column));
     },
 
+    dropConstraint: t => {
+        ret.push(' DROP CONSTRAINT ');
+        if (t.ifExists) {
+            ret.push(' IF EXISTS ');
+        }
+        ret.push(name(t.constraint));
+        if (t.behaviour) {
+            ret.push(' ', t.behaviour.toUpperCase(), ' ');
+        }
+    },
+
     from: t => m.super().from(t),
 
     fromCall: s => {
 
         join(m, s.join, () => {
             m.call(s);
+            if (s.withOrdinality) {
+                ret.push(' WITH ORDINALITY')
+            }
             if (s.alias) {
-                ret.push(' AS ', name(s.alias), ' ');
+                ret.push(' AS ', name<Name>(s.alias), ' ');
+                const len = s.alias.columns?.length ?? 0;
+                if (len > 0) {
+                    ret.push('(')
+                    for (let ix = 0; ix < len; ++ix) {
+                        if (ix !== 0) {
+                            ret.push(', ')
+                        }
+                        ret.push(name(s.alias.columns![ix]));
+                    }
+                    ret.push(')')
+                }
             }
         });
 
@@ -1000,6 +1108,10 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
             } else {
                 ret.push(' DO UPDATE SET ');
                 list(i.onConflict.do.sets, s => m.set(s), false);
+                if (i.onConflict.where) {
+                    ret.push(' WHERE ');
+                    m.expr(i.onConflict.where);
+                }
             }
             ret.push(' ');
         }
@@ -1126,6 +1238,17 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
         }
     },
 
+    refreshMaterializedView: val => {
+        ret.push('REFRESH MATERIALIZED VIEW ');
+        if (val.concurrently) {
+            ret.push('CONCURRENTLY ');
+        }
+        m.tableRef(val.name);
+        if (typeof val.withData === 'boolean') {
+            ret.push(val.withData ? ' WITH DATA' : ' WITH NO DATA');
+        }
+    },
+
     select: s => m.super().select(s),
 
     selection: s => {
@@ -1147,7 +1270,13 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
         ret.push(' ');
         if (s.from) {
             ret.push('FROM ');
-            for (const f of s.from) {
+            const tblCnt = s.from.length
+            for (let i = 0; i < tblCnt; i++) {
+                const f = s.from[i];
+                if (i > 0 && !f.join) {
+                    // implicit cross join (https://www.postgresql.org/docs/9.5/sql-select.html#SQL-FROM)
+                    ret.push(',')
+                }
                 m.from(f);
             }
             ret.push(' ');
@@ -1174,14 +1303,16 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
             if (s.limit.offset) {
                 ret.push(`OFFSET `);
                 m.expr(s.limit.offset);
-                if (s.limit.limit) {
-                    ret.push(`FETCH `);
-                    m.expr(s.limit.limit);
-                }
-            } else if (s.limit.limit) {
+
+            }
+            if (s.limit.limit) {
                 ret.push(`LIMIT `);
                 m.expr(s.limit.limit);
             }
+        }
+
+        if (s.for) {
+            ret.push('FOR ', s.for.type.toUpperCase());
         }
     },
 
@@ -1196,6 +1327,15 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
         }
         ret.push(' AS ');
         m.statement(s.statement);
+    },
+
+    deallocate: s => {
+        ret.push('DEALLOCATE ');
+        if ('name' in s.target) {
+            ret.push(s.target.name);
+            return;
+        }
+        ret.push('ALL')
     },
 
     arraySelect: s => {
@@ -1227,11 +1367,7 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
 
     set: s => {
         ret.push(name(s.column), ' = ');
-        if (s.value === 'default') {
-            ret.push('default');
-        } else {
-            m.expr(s.value);
-        }
+        m.expr(s.value);
         ret.push(' ');
     },
 
@@ -1288,6 +1424,11 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
         ret.push(' SET ');
         list(u.sets, s => m.set(s), false);
         ret.push(' ');
+        if (u.from) {
+            ret.push('FROM ');
+            m.from(u.from);
+            ret.push(' ');
+        }
         if (u.where) {
             ret.push('WHERE ');
             m.expr(u.where);

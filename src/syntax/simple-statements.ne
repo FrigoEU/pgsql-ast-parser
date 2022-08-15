@@ -61,6 +61,7 @@ simplestatements_set_val
 simplestatements_set_val_raw
     -> (string | int) {% x => track(x, { type: 'value', value: unwrap(x) }) %}
     | (%word | %kw_on | %kw_true | %kw_false) {% x => track(x, { type: 'identifier', name: unwrap(x).value }) %}
+    | %quoted_word {% x => track(x, { type: 'identifier', doubleQuoted: true, name: unwrap(x).value }) %}
 
 
 simplestatements_show -> kw_show ident {% x => track(x, { type: 'show', variable: asName(x[1]) }) %}
@@ -121,7 +122,7 @@ comment_what_nm -> (%kw_table
                     name: x[1],
                 }) %}
 
-comment_what_col -> %kw_column qcolumn {% x => track(x, {
+comment_what_col -> kw_column qcolumn {% x => track(x, {
                 type: 'column',
                 column: last(x),
             }) %}

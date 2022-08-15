@@ -1,11 +1,12 @@
-import { compile, keywords } from 'moo';
-import { PGComment, NodeLocation } from './syntax/ast';
+import { compile, keywords, Token } from 'moo';
+
 import { sqlKeywords } from './keywords';
+import { NodeLocation, PGComment } from './syntax/ast';
 
 // build keywords
-const keywodsMap: any = {};
+const keywordsMap: any = {};
 for (const k of sqlKeywords) {
-    keywodsMap['kw_' + k.toLowerCase()] = k;
+    keywordsMap['kw_' + k.toLowerCase()] = k;
 }
 const caseInsensitiveKeywords = (map: any) => {
     const transform = keywords(map)
@@ -17,25 +18,25 @@ const caseInsensitiveKeywords = (map: any) => {
 export const lexer = compile({
     word: {
         match: /[eE](?!')[A-Za-z0-9_]*|[a-df-zA-DF-Z_][A-Za-z0-9_]*/,
-        type: caseInsensitiveKeywords(keywodsMap),
+        type: caseInsensitiveKeywords(keywordsMap),
         value: x => x.toLowerCase(),
     },
     wordQuoted: {
         match: /"(?:[^"\*]|"")+"/,
-        type: () => 'word',
-        // value: x => x.substr(1, x.length - 2),
+        type: () => 'quoted_word',
+        value: x => x.substring(1, x.length - 1),
     },
     string: {
         match: /'(?:[^']|\'\')*'/,
         value: x => {
-            return x.substr(1, x.length - 2)
+            return x.substring(1, x.length - 1)
                 .replace(/''/g, '\'');
         },
     },
     eString: {
         match: /\b(?:e|E)'(?:[^'\\]|[\r\n\s]|(?:\\\s)|(?:\\\n)|(?:\\.)|(?:\'\'))+'/,
         value: x => {
-            return x.substr(2, x.length - 3)
+            return x.substring(2, x.length - 1)
                 .replace(/''/g, '\'')
                 .replace(/\\([\s\n])/g, (_, x) => x)
                 .replace(/\\./g, m => JSON.parse('"' + m + '"'));
@@ -44,14 +45,15 @@ export const lexer = compile({
     qparam: {
         match: /\$\d+/,
     },
+    commentLine: /\-\-.*?$[\s\r\n]*/,
+    commentFullOpen: /(?<!\/)\/\*/,
+    commentFullClose: /\*\/[\s\r\n]*/,
     star: '*',
     comma: ',',
     space: { match: /[\s\t\n\v\f\r]+/, lineBreaks: true, },
     int: /\-?\d+(?![\.\d])/,
     float: /\-?(?:(?:\d*\.\d+)|(?:\d+\.\d*))/,
     // word: /[a-zA-Z][A-Za-z0-9_\-]*/,
-    commentLine: /\-\-.*?$[\s\r\n]*/,
-    commentFull: /(?<!\/)\/\*(?:.|[\r\n])*?\*\/[\s\r\n]*/,
     lparen: '(',
     rparen: ')',
     lbracket: '[',
@@ -94,21 +96,50 @@ export const lexer = compile({
     codeblock: {
         match: /\$\$(?:.|[\s\t\n\v\f\r])*?\$\$/s,
         lineBreaks: true,
-        value: (x: string) => x.substr(2, x.length - 4),
+        value: (x: string) => x.substring(2, x.length - 2),
     },
 });
 
 lexer.next = (next => () => {
-    let tok;
+    let tok: Token | undefined;
+    let commentFull: {
+        nested: number;
+        offset: number;
+        text: string;
+    } | null = null;
+
     while (tok = next.call(lexer)) {
+        // js regex can't be recursive, so we'll keep track of nested opens (/*) and closes (*/).
+        if (tok.type === 'commentFullOpen') {
+            if (commentFull === null) { // initial open - start collecting content
+                commentFull = {
+                    nested: 0,
+                    offset: tok.offset,
+                    text: tok.text
+                }
+                continue;
+            }
+            commentFull.nested++;
+        }
+        if (commentFull != null) {
+            // collect comment content
+            commentFull.text += tok.text;
+
+            if (tok.type === 'commentFullClose') {
+                if (commentFull.nested === 0) { // finish comment, if not nested
+                    comments?.push(makeComment(commentFull))
+                    commentFull = null;
+                    continue;
+                }
+                commentFull.nested--;
+            }
+            continue;
+        }
         if (tok.type === 'space') {
             continue;
         }
-        if (tok.type === 'commentLine' || tok.type === 'commentFull') {
-            comments?.push({
-                _location: { start: tok.offset, end: tok.offset + tok.text.length },
-                comment: tok.text,
-            })
+        if (tok.type === 'commentLine') {
+            comments?.push(makeComment(tok))
             continue;
         }
         break;
@@ -128,6 +159,11 @@ lexer.next = (next => () => {
 export const lexerAny: any = lexer;
 
 let comments: PGComment[] | null = null;
+
+const makeComment = ({ offset, text }: { offset: number; text: string }): PGComment => ({
+	_location: { start: offset, end: offset + text.length },
+	comment: text,
+});
 
 export function trackingComments<T>(act: () => T): { ast: T; comments: PGComment[] } {
     if (comments) {
@@ -178,16 +214,32 @@ export function track(xs: any, ret: any) {
 }
 
 const literal = Symbol('_literal');
-export function box(xs: any, value: any) {
-    if (!trackingLoc) {
+const doubleQuotedSym = Symbol('_doublequoted');
+export function box(xs: any, value: any, doubleQuoted?: boolean) {
+    if (!trackingLoc && !doubleQuoted) {
         return value;
     }
-    return track(xs, { [literal]: value });
+    return track(xs, { [literal]: value, [doubleQuotedSym]: doubleQuoted });
+}
+
+
+function unwrapNoBox(e: any[]): any {
+    if (Array.isArray(e) && e.length === 1) {
+        e = unwrapNoBox(e[0]);
+    }
+    if (Array.isArray(e) && !e.length) {
+        return null;
+    }
+    return e;
+}
+export function doubleQuoted(value: any) {
+    const uw = unwrapNoBox(value);
+    if (typeof value === 'object' && uw?.[doubleQuotedSym]) {
+        return {doubleQuoted: true};
+    }
+    return undefined;
 }
 export function unbox(value: any): any {
-    if (!trackingLoc) {
-        return value;
-    }
     if (typeof value === 'object') {
         return value?.[literal] ?? value;
     }

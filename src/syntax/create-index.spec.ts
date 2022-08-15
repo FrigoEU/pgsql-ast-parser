@@ -163,4 +163,56 @@ describe('Create index', () => {
             order: 'desc',
         }],
     });
+
+    // fixes https://github.com/oguimbal/pg-mem/issues/89
+    checkCreateIndex(['CREATE UNIQUE INDEX my_idx ON my_table (col1, (col2 IS NULL)) WHERE col2 IS NULL'], {
+        type: 'create index',
+        unique: true,
+        table: { name: 'my_table' },
+        indexName: { name: 'my_idx' },
+        expressions: [
+            { expression: { type: 'ref', name: 'col1' } },
+            {
+                expression: {
+                    type: 'unary',
+                    op: 'IS NULL',
+                    operand: { type: 'ref', name: 'col2' },
+                }
+            },
+        ],
+        where: {
+            type: 'unary',
+            op: 'IS NULL',
+            operand: { type: 'ref', name: 'col2' },
+        },
+    })
+
+
+    // Fix of https://github.com/oguimbal/pgsql-ast-parser/issues/66
+    checkCreateIndex([`CREATE INDEX foo ON bar USING btree (bar) WITH (fillfactor='70')`, `CREATE INDEX foo ON bar USING btree (bar) WITH (fillfactor=70)`], {
+        type: 'create index',
+        indexName: { name: 'foo' },
+        table: { name: 'bar', },
+        using: { name: 'btree' },
+        expressions: [{
+            expression: {
+                type: 'ref',
+                name: 'bar',
+            }
+        }],
+        with: [{
+            parameter: 'fillfactor',
+            value: '70',
+        }],
+    })
+
+    checkCreateIndex(['create index blah on test(col) tablespace abc'], {
+        type: 'create index',
+        indexName: { name: 'blah' },
+        table: { name: 'test' },
+        expressions: [{
+            expression: { type: 'ref', name: 'col' },
+        }],
+        tablespace: 'abc',
+    });
 });

@@ -5,14 +5,18 @@
 # https://www.postgresql.org/docs/12/sql-altertable.html
 
 altertable_statement -> kw_alter %kw_table kw_ifexists:? %kw_only:? table_ref
-                        altertable_action {% x => track(x, {
+                        altertable_actions {% x => track(x, {
                             type: 'alter table',
                             ... x[2] ? {ifExists: true} : {},
                             ... x[3] ? {only: true} : {},
                             table: unwrap(x[4]),
-                            change: unwrap(x[5]),
+                            changes: unbox(x[5]).map(unwrap),
                         }) %}
 
+
+altertable_actions -> altertable_action (comma altertable_action {% last %}):* {% ([head, tail]) => {
+    return [head, ...(tail || [])];
+} %}
 
 altertable_action
     -> altertable_rename_table
@@ -22,6 +26,7 @@ altertable_action
     | altertable_drop_column
     | altertable_alter_column
     | altertable_add_constraint
+    | altertable_drop_constraint
     | altertable_owner
 
 
@@ -30,7 +35,7 @@ altertable_rename_table -> kw_rename %kw_to word {% x => track(x, {
     to: asName(last(x)),
 }) %}
 
-altertable_rename_column -> kw_rename %kw_column:? ident %kw_to ident {% x => track(x, {
+altertable_rename_column -> kw_rename kw_column:? ident %kw_to ident {% x => track(x, {
     type: 'rename column',
     column: asName(x[2]),
     to: asName(last(x)),
@@ -42,14 +47,14 @@ altertable_rename_constraint -> kw_rename %kw_constraint ident %kw_to ident {% x
     to: asName(last(x)),
 }) %}
 
-altertable_add_column -> kw_add %kw_column:? kw_ifnotexists:? createtable_column {% x => track(x, {
+altertable_add_column -> kw_add kw_column:? kw_ifnotexists:? createtable_column {% x => track(x, {
     type: 'add column',
     ... x[2] ? {ifNotExists: true} : {},
     column: unwrap(x[3]),
 }) %}
 
 
-altertable_drop_column -> kw_drop %kw_column:? kw_ifexists:? ident {% x => track(x, {
+altertable_drop_column -> kw_drop kw_column:? kw_ifexists:? ident {% x => track(x, {
     type: 'drop column',
     ... x[2] ? {ifExists: true} : {},
     column: asName(x[3]),
@@ -57,7 +62,7 @@ altertable_drop_column -> kw_drop %kw_column:? kw_ifexists:? ident {% x => track
 
 
 altertable_alter_column
-    ->  kw_alter  %kw_column:? ident altercol {% x => track(x, {
+    ->  kw_alter  kw_column:? ident altercol {% x => track(x, {
         type: 'alter column',
         column: asName(x[2]),
         alter: unwrap(x[3])
@@ -76,6 +81,12 @@ altertable_add_constraint
         constraint: unwrap(last(x)),
     }) %}
 
+altertable_drop_constraint -> kw_drop %kw_constraint kw_ifexists:? ident (kw_restrict | kw_cascade):? {% x => track(x, {
+    type: 'drop constraint',
+    ... x[2] ? {ifExists: true} : {},
+    constraint: asName(x[3]),
+    ... x[4] ? {behaviour: toStr(x[4], ' ')} : {},
+}) %}
 
 altertable_owner
      -> kw_owner %kw_to ident {% x => track(x, {

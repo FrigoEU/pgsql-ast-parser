@@ -27,6 +27,15 @@ describe('Ast mapper', () => {
         })
     }
 
+    function testExprs(statement: string, map: MapperBuilder, exprs: Expr[]) {
+        const toMap = parse(statement);
+        const mapped = astMapper(map).statement(toMap);
+        assert.deepEqual(mapped, {
+            type: 'select',
+            columns: exprs.map(expr => ({ expr })),
+        })
+    }
+
     it('maps a select constant', () => {
         testExpr('select 42', b => ({
             constant: c => assignChanged(c, {
@@ -123,6 +132,22 @@ describe('Ast mapper', () => {
         });
     })
 
+    it('maps multiple calls', () => {
+        testExprs('select fn(a), fn(b), fn(c)', () => ({
+            call: c => c.args[0],
+        }), [
+            {
+                type: 'ref',
+                name: 'a',
+            }, {
+                type: 'ref',
+                name: 'b',
+            }, {
+                type: 'ref',
+                name: 'c',
+            }
+        ]);
+    })
 
     it('maps array literal', () => {
         testExpr('select (a,b)', b => ({
@@ -140,8 +165,7 @@ describe('Ast mapper', () => {
             type: 'ref',
             name: 'foo',
         });
-    })
-
+    });
 
     it('maps deep', () => {
         // create a mapper
@@ -196,6 +220,38 @@ describe('Ast mapper', () => {
 
         expect(toSql.statement(result!)).to.deep.equal('SELECT bar  FROM test');
 
+    })
+
+    it('removes WITH node if one of its contained statements is removed', () => {
+        // create a mapper
+        const mapper = astMapper(map => ({
+            statement: s => {
+                return (s.type !== 'select' && s.type !== 'with') ? null : map.super().statement(s)
+            },
+        }));
+
+        // process sql
+        const killed = mapper.statement(parse('with ids as (select id from t1) delete from t1 where 1=1 returning id'));
+        assert.isNull(killed, 'default mapper maps a WITH to null if its contained `in` statement gets mapped to null');
+        const survived = mapper.statement(parse('with ids as (select id from t1) select * from ids'));
+        assert.equal(toSql.statement(survived!), 'WITH ids AS (SELECT id  FROM t1   ) SELECT *  FROM ids');
+    });
+
+    it('maps insert with super() call', () => {
+
+        // create a mapper
+        const mapper = astMapper(map => ({
+            insert: i => map.super().insert({
+                ...i,
+                columns: i.columns?.filter(c => c.name !== 'a'),
+            })
+        }))
+
+        const source = parseFirst(`insert into test (a, b) values ('a', 'b')`);
+        const target = parseFirst(`insert into test (b) values ('a', 'b')`);
+        const mapped = mapper.statement(source);
+
+        expect(mapped).to.deep.equal(target);
     })
 
 

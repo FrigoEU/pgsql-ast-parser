@@ -88,13 +88,116 @@ describe('Select statements', () => {
     });
 
 
-    checkSelect(['select * from test limit 5', 'select * from test fetch first 5', 'select * from test fetch next 5 rows'], {
+    checkSelect(['select * from test limit 5', 'select * from test fetch first 5 row only', 'select * from test fetch next 5 rows only'], {
         type: 'select',
         from: [tbl('test')],
         columns: columns({ type: 'ref', name: '*' }),
         limit: {
             limit: { type: 'integer', value: 5 }
         },
+    });
+
+    checkSelect(['select * from unnest(generate_series(1, 10)) AS test(num)'], {
+        type: 'select',
+        from: [{
+            type: 'call',
+            function: { name: 'unnest' },
+            alias: {
+                name: 'test',
+                columns: [
+                    { name: 'num' },
+                ],
+            },
+            args: [
+                {
+                    type: 'call',
+                    function: { name: 'generate_series' },
+                    args: [
+                        { type: 'integer', value: 1 },
+                        { type: 'integer', value: 10 },
+                    ],
+                },
+            ],
+        }],
+        columns: columns({ type: 'ref', name: '*' }),
+    });
+
+    checkSelect(['select * from unnest(ARRAY[\'foo\', \'bar\', \'baz\']) with ordinality AS test(thing, num)'], {
+        type: 'select',
+        from: [{
+            type: 'call',
+            function: { name: 'unnest' },
+            withOrdinality: true,
+            alias: {
+                name: 'test',
+                columns: [
+                    { name: 'thing' },
+                    { name: 'num' },
+                ],
+            },
+            args: [
+                {
+                    type: 'array',
+                    expressions: [
+                        { type: 'string', value: 'foo' },
+                        { type: 'string', value: 'bar' },
+                        { type: 'string', value: 'baz' },
+                    ]
+                }
+            ],
+        }],
+        columns: columns({ type: 'ref', name: '*' }),
+    });
+
+    checkSelect(['select t.* from things AS t join unnest(ARRAY[\'foo\', \'bar\']) with ordinality AS f(thing, ord) using (thing) order by f.ord'], {
+        type: 'select',
+        from: [
+            {
+                type: 'table',
+                name: { name: 'things', alias: 't' }
+            },
+            {
+                type: 'call',
+                function: { name: 'unnest' },
+                join: {
+                    type: 'INNER JOIN',
+                    using: [
+                        { name: 'thing' }
+                    ],
+                },
+                withOrdinality: true,
+                alias: {
+                    name: 'f',
+                    columns: [
+                        { name: 'thing' },
+                        { name: 'ord' },
+                    ],
+                },
+                args: [
+                    {
+                        type: 'array',
+                        expressions: [
+                            { type: 'string', value: 'foo' },
+                            { type: 'string', value: 'bar' },
+                        ],
+                    }
+                ],
+            }
+        ],
+        columns: columns({
+            type: 'ref',
+            table: { name: 't' },
+            name: '*',
+        }),
+        orderBy: [
+            {
+                by: {
+                    type: 'ref',
+                    table: { name: 'f' },
+                    name: 'ord',
+                }
+            }
+        ]
     });
 
     checkSelect(['select * from test limit 0'], {
@@ -106,7 +209,7 @@ describe('Select statements', () => {
         },
     });
 
-    checkSelect(['select * from test limit 5 offset 3', 'select * from test offset 3 rows fetch first 5'], {
+    checkSelect(['select * from test limit 5 offset 3', 'select * from test offset 3 limit 5', 'select * from test offset 3 rows fetch first 5 rows only'], {
         type: 'select',
         from: [tbl('test')],
         columns: columns({ type: 'ref', name: '*' }),
@@ -176,6 +279,28 @@ describe('Select statements', () => {
         }]
     });
 
+    checkSelect(['select * from test order by a asc nulls first'], {
+        type: 'select',
+        from: [tbl('test')],
+        columns: columns({ type: 'ref', name: '*' }),
+        orderBy: [{
+            by: { type: 'ref', name: 'a' },
+            order: 'ASC',
+            nulls: 'FIRST',
+        }]
+    });
+
+    checkSelect(['select * from test order by a asc nulls last'], {
+        type: 'select',
+        from: [tbl('test')],
+        columns: columns({ type: 'ref', name: '*' }),
+        orderBy: [{
+            by: { type: 'ref', name: 'a' },
+            order: 'ASC',
+            nulls: 'LAST',
+        }]
+    });
+
     checkSelect(['select a.*, b.*'], {
         type: 'select',
         columns: columns({
@@ -223,7 +348,9 @@ describe('Select statements', () => {
     checkInvalid('select "*" from test');
     checkInvalid('select (*) from test');
     checkInvalid('select ("*") from test');
+    checkInvalid('select * from (test)');
     checkInvalid('select * from (select id from test)'); // <== missing alias
+    checkInvalid('select * from sum(DISTINCT whatever)');
 
     checkSelect('select * from (select id from test) d', {
         type: 'select',
@@ -288,9 +415,13 @@ describe('Select statements', () => {
     checkInvalid('select * from ta full inner join tb on ta.id=tb.id');
     checkInvalid('select * from ta left inner join tb on ta.id=tb.id');
     checkInvalid('select * from ta right inner join tb on ta.id=tb.id');
+    checkInvalid('select * from ta cross inner join tb on ta.id=tb.id');
+    checkInvalid('select * from ta cross outer join tb on ta.id=tb.id');
 
     checkSelect(['select * from ta join tb on ta.id=tb.id'
-        , 'select * from ta inner join tb on ta.id=tb.id']
+        , 'select * from ta inner join tb on ta.id=tb.id'
+        , 'select * from (ta join tb on ta.id=tb.id)'
+        , 'select * from (((ta join tb on ta.id=tb.id)))']
         , buildJoin('INNER JOIN'));
 
     checkSelect(['select * from ta left join tb on ta.id=tb.id'
@@ -306,6 +437,119 @@ describe('Select statements', () => {
         , 'select * from ta full outer join tb on ta.id=tb.id']
         , buildJoin('FULL JOIN'));
 
+    checkSelect('select * from ta cross join tb on ta.id=tb.id'
+        , buildJoin('CROSS JOIN'));
+
+    // implicit cross join
+    checkSelect('select * from ta, tb where ta.id=tb.id',
+        {
+            type: 'select',
+            columns: [{ expr: star }],
+            from: [
+                tbl('ta'),
+                tbl('tb'),
+            ],
+            where: {
+                type: 'binary',
+                op: '=',
+                left: {
+                    type: 'ref',
+                    table: { name: 'ta' },
+                    name: 'id',
+                },
+                right: {
+                    type: 'ref',
+                    table: { name: 'tb' },
+                    name: 'id',
+                }
+            }
+        }
+    );
+
+    // implicit cross join multiple tables
+    checkSelect('select * from ta, tb, tc, td',
+        {
+            type: 'select',
+            columns: [{ expr: star }],
+            from: [
+                tbl('ta'),
+                tbl('tb'),
+                tbl('tc'),
+                tbl('td'),
+            ]
+        }
+    );
+
+    // mixed join
+    checkSelect('select * from ta, tb cross join tc, (select * from td) as te', {
+        type: 'select',
+        columns: [{ expr: star }],
+        from: [
+            tbl('ta'),
+            tbl('tb'),
+            {
+                type: 'table',
+                name: name('tc'),
+                join: {
+                    type: 'CROSS JOIN',
+                },
+            },
+            {
+                type: 'statement',
+                alias: 'te',
+                statement: {
+                    type: 'select',
+                    columns: [{ expr: star }],
+                    from: [ tbl('td') ],
+                },
+            },
+        ],
+    });
+
+    // double join with and without parens
+    checkSelect([`select * from ta cross join tb cross join tc`
+        , `select * from (ta cross join tb) cross join tc`]
+        , {
+            type: 'select',
+            columns: [{ expr: star }],
+            from: [
+                tbl('ta'),
+                {
+                    type: 'table',
+                    name: name('tb'),
+                    join: {
+                        type: 'CROSS JOIN',
+                    },
+                },
+                {
+                    type: 'table',
+                    name: name('tc'),
+                    join: {
+                        type: 'CROSS JOIN',
+                    },
+                }
+            ],
+        }
+    );
+
+    // join, then implicit cross join
+    checkSelect(`select * from (ta cross join tb), tc`
+        , {
+            type: 'select',
+            columns: [{ expr: star }],
+            from: [
+                tbl('ta'),
+                {
+                    type: 'table',
+                    name: name('tb'),
+                    join: {
+                        type: 'CROSS JOIN',
+                    },
+                },
+                tbl('tc'),
+            ],
+        }
+    );
 
     checkSelect(`SELECT *
                 FROM STUD_ASS_PROGRESS
@@ -346,6 +590,17 @@ describe('Select statements', () => {
                 type: 'cast',
                 operand: { type: 'string', value: '1' },
                 to: { name: 'double precision' },
+            }
+        }]
+    });
+
+    checkSelect(`select '1'::"double precision"`, {
+        type: 'select',
+        columns: [{
+            expr: {
+                type: 'cast',
+                operand: { type: 'string', value: '1' },
+                to: { name: 'double precision', doubleQuoted: true },
             }
         }]
     });
@@ -614,5 +869,41 @@ describe('Select statements', () => {
                 from: [tbl('x')],
             }
         }),
+    });
+
+    checkSelect('select * from test for update', {
+        type: 'select',
+        from: [tbl('test')],
+        columns: columns({ type: 'ref', name: '*' }),
+        for: {
+            type: 'update',
+        }
+    });
+
+    checkSelect('select * from test for no key update', {
+        type: 'select',
+        from: [tbl('test')],
+        columns: columns({ type: 'ref', name: '*' }),
+        for: {
+            type: 'no key update',
+        }
+    });
+
+    checkSelect('select * from test for share', {
+        type: 'select',
+        from: [tbl('test')],
+        columns: columns({ type: 'ref', name: '*' }),
+        for: {
+            type: 'share',
+        }
+    });
+
+    checkSelect('select * from test for key share', {
+        type: 'select',
+        from: [tbl('test')],
+        columns: columns({ type: 'ref', name: '*' }),
+        for: {
+            type: 'key share',
+        }
     });
 });

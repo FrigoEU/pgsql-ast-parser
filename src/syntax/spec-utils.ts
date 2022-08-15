@@ -211,49 +211,46 @@ function checkTree<T>(value: string | string[], expected: T, mapper: (parsed: T,
             // check that it generates the same with/without location tracking
             expect(hideLocs(parsedWithLocations)).to.deep.equal(hideLocs(parsedWithoutTracking), 'Parser did not return the same thing with and without location tracking enabled');
 
-            if (lang.astMapper){
-              // check that it is stable through ast modifier
-              const modified = mapper(parsed, lang.astMapper(() => ({})));
-              expect(modified).to.equal(parsed, 'It is not stable when passing through a neutral AST mapper -> Should return THE SAME REFERENCE to avoid copying stuff when nothing changed.');
+            // check that it is stable through ast modifier
+            const modified = mapper(parsed, astMapper(() => ({})));
+            expect(modified).to.equal(parsed, 'It is not stable when passing through a neutral AST mapper -> Should return THE SAME REFERENCE to avoid copying stuff when nothing changed.');
+
+
+            // check that it procuces sql
+            let newSql: string;
+            try {
+                newSql = mapper(parsed, toSql);
+                assert.isString(newSql);
+            } catch (e) {
+                (e as any).message = `⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
+        Failed to generate SQL from the parsed AST
+            => There should be something wrong in to-sql.ts
+⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
+            ${(e as any).message}`;
+                throw e;
             }
 
-            if (lang.toSql){
-              // check that it procuces sql
-              let newSql: string;
-              try {
-                  newSql = mapper(parsed, lang.toSql);
-                  assert.isString(newSql);
-              } catch (e) {
-                  e.message = `⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
-          Failed to generate SQL from the parsed AST
-              => There should be something wrong in to-sql.ts
-  ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
-              ${e.message}`;
-                  throw e;
-              }
-
-              // reparse the generated sql...
-              let reparsed: any;
-              try {
-                  assert.isString(newSql);
-                  reparsed = checkLocations
-                      ? tracking(() => doParse(newSql))
-                      : doParse(newSql);
-              } catch (e) {
-                  e.message = `⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
-          The parsed AST converted-back to SQL generated invalid SQL.
-              => There should be something wrong in to-sql.ts
-  ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
-              ${e.message}`;
-                  throw e;
-              }
-
-              // ...and check it still produces the same ast.
-              expect(hideLocs(reparsed)).to.deep.equal(hideLocs(expected), `⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
-      SQL  -> AST  -> SQL transformation is not stable !
-              => This means that the parser is OK, but you might have forgotten to implement something in to-sql.ts
-  ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔  `);
+            // reparse the generated sql... 
+            let reparsed: any;
+            try {
+                assert.isString(newSql);
+                reparsed = checkLocations
+                    ? tracking(() => doParse(newSql))
+                    : doParse(newSql);
+            } catch (e) {
+                e.message = `⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
+        The parsed AST converted-back to SQL generated invalid SQL.
+            => There should be something wrong in to-sql.ts
+⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
+            ${e.message}`;
+                throw e;
             }
+
+            // ...and check it still produces the same ast.
+            expect(hideLocs(reparsed)).to.deep.equal(hideLocs(expected), `⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔
+    SQL  -> AST  -> SQL transformation is not stable !
+            => This means that the parser is OK, but you might have forgotten to implement something in to-sql.ts
+⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔ ⛔  `);
         });
     }
 }
@@ -271,6 +268,20 @@ export function checkInvalid(sql: string, start?: string) {
         });
     });
 }
+
+
+export function checkValid(sql: string, start?: string) {
+    it('parses ' + sql, () => {
+        const gram = Grammar.fromCompiled(grammar);
+        if (start) {
+            gram.start = start
+        }
+        const parser = new Parser(gram);
+        parser.feed(sql);
+        expect(parser.results).not.to.deep.equal([]);
+    });
+}
+
 
 export function checkInvalidExpr(sql: string) {
     return checkInvalid(sql, 'expr');
@@ -308,7 +319,7 @@ export const starCol: SelectedColumn = { expr: star };
 export function col(name: string, alias?: string): SelectedColumn {
     return {
         expr: ref(name),
-        alias: alias ? { name: alias } : undefined,
+        ... alias ? { name: alias } : undefined,
     };
 }
 export function ref(name: string): Expr {

@@ -12,14 +12,14 @@ describe('Alter table', () => {
             _location: { start: 12, end: 16 },
             name: 'test'
         },
-        change: {
+        changes: [{
             _location: { start: 17, end: 34 },
             type: 'rename',
             to: {
                 _location: { start: 27, end: 34 },
                 name: 'newname'
             },
-        }
+        }]
     });
 
     checkAlterTable(['alter table if exists only test rename to newname'], {
@@ -27,46 +27,46 @@ describe('Alter table', () => {
         table: { name: 'test' },
         ifExists: true,
         only: true,
-        change: {
+        changes: [{
             type: 'rename',
             to: { name: 'newname' },
-        }
+        }]
     });
 
     checkAlterTable(['alter table ONLY  test rename to newname'], {
         type: 'alter table',
         table: { name: 'test' },
         only: true,
-        change: {
+        changes: [{
             type: 'rename',
             to: { name: 'newname' },
-        }
+        }]
     });
 
     checkAlterTable(['alter table test rename column a to b', 'alter table test rename a to b',], {
         type: 'alter table',
         table: { name: 'test' },
-        change: {
+        changes: [{
             type: 'rename column',
             column: { name: 'a' },
             to: { name: 'b', },
-        }
+        }]
     });
 
     checkAlterTable(['alter table test rename constraint a to b',], {
         type: 'alter table',
         table: { name: 'test' },
-        change: {
+        changes: [{
             type: 'rename constraint',
             constraint: { name: 'a' },
             to: { name: 'b' },
-        }
+        }]
     });
 
     checkAlterTable(['alter table test add column a jsonb not null', 'alter table test add a jsonb not null'], {
         type: 'alter table',
         table: { name: 'test' },
-        change: {
+        changes: [{
             type: 'add column',
             column: {
                 kind: 'column',
@@ -74,13 +74,13 @@ describe('Alter table', () => {
                 dataType: { name: 'jsonb' },
                 constraints: [{ type: 'not null' }],
             },
-        }
+        }]
     });
 
     checkAlterTable(['alter table test add column if not exists a jsonb not null', 'alter table test add if not exists a jsonb not null'], {
         type: 'alter table',
         table: { name: 'test' },
-        change: {
+        changes: [{
             type: 'add column',
             ifNotExists: true,
             column: {
@@ -89,73 +89,108 @@ describe('Alter table', () => {
                 dataType: { name: 'jsonb' },
                 constraints: [{ type: 'not null' }],
             },
-        }
+        }]
     });
 
     checkAlterTable(['alter table test drop column if exists a', 'alter table test drop if exists a'], {
         type: 'alter table',
         table: { name: 'test' },
-        change: {
+        changes: [{
             type: 'drop column',
             column: { name: 'a' },
             ifExists: true,
-        }
+        }]
     });
+
+
+    checkAlterTable(['alter table test drop constraint if exists a'], {
+        type: 'alter table',
+        table: { name: 'test' },
+        changes: [{
+            type: 'drop constraint',
+            constraint: { name: 'a' },
+            ifExists: true,
+        }]
+    });
+
+
+
+    checkAlterTable(['alter table test drop constraint a cascade'], {
+        type: 'alter table',
+        table: { name: 'test' },
+        changes: [{
+            type: 'drop constraint',
+            constraint: { name: 'a' },
+            behaviour: 'cascade',
+        }]
+    });
+
+    checkAlterTable(['alter table test drop constraint a restrict'], {
+        type: 'alter table',
+        table: { name: 'test' },
+        changes: [{
+            type: 'drop constraint',
+            constraint: { name: 'a' },
+            behaviour: 'restrict',
+        }]
+    });
+
+
 
     checkAlterTable(['alter table test drop column a', 'alter table test drop a'], {
         type: 'alter table',
         table: { name: 'test' },
-        change: {
+        changes: [{
             type: 'drop column',
             column: { name: 'a' },
-        }
+        }]
     });
 
     checkAlterTable(['alter table test alter column a set data type jsonb', 'alter table test alter a type jsonb'], {
         type: 'alter table',
         table: { name: 'test' },
-        change: {
+        changes: [{
             type: 'alter column',
             column: { name: 'a' },
             alter: {
                 type: 'set type',
                 dataType: { name: 'jsonb' },
             }
-        }
+        }]
     });
     checkAlterTable(['alter table test alter a set default 42'], {
         type: 'alter table',
         table: { name: 'test' },
-        change: {
+        changes: [{
             type: 'alter column',
             column: { name: 'a' },
             alter: {
                 type: 'set default',
                 default: { type: 'integer', value: 42 }
             }
-        }
+        }]
     });
     checkAlterTable(['alter table test alter a drop default'], {
         type: 'alter table',
         table: { name: 'test' },
-        change: {
+        changes: [{
             type: 'alter column',
             column: { name: 'a' },
             alter: {
                 type: 'drop default',
             }
-        }
+        }]
     });
     checkAlterTable(['alter table test alter a  drop not null'], {
         type: 'alter table',
         table: { name: 'test' },
-        change: {
+        changes: [{
             type: 'alter column',
             column: { name: 'a' },
             alter: {
                 type: 'drop not null',
             }
-        }
+        }]
     });
 
 
@@ -169,7 +204,7 @@ describe('Alter table', () => {
             _location: { start: 12, end: 15 },
             name: 'tbl'
         },
-        change: {
+        changes: [{
             type: 'add constraint',
             _location: { start: 16, end: 51 },
             constraint: {
@@ -193,13 +228,13 @@ describe('Alter table', () => {
                     },
                 }
             },
-        }
+        }]
     });
 
     checkAlterTable(`ALTER TABLE tbl ADD check (a > 0)`, {
         type: 'alter table',
         table: { name: 'tbl' },
-        change: {
+        changes: [{
             type: 'add constraint',
             constraint: {
                 type: 'check',
@@ -210,7 +245,7 @@ describe('Alter table', () => {
                     right: { type: 'integer', value: 0 },
                 }
             },
-        }
+        }]
     });
 
 
@@ -221,7 +256,7 @@ describe('Alter table', () => {
                 ON DELETE NO ACTION ON UPDATE NO ACTION;`, {
         type: 'alter table',
         table: { name: 'photo' },
-        change: {
+        changes: [{
             type: 'add constraint',
             constraint: {
                 type: 'foreign key',
@@ -232,7 +267,7 @@ describe('Alter table', () => {
                 onUpdate: 'no action',
                 onDelete: 'no action',
             }
-        }
+        }]
     });
 
 
@@ -240,24 +275,24 @@ describe('Alter table', () => {
                  PRIMARY KEY ("a", "b")`, {
         type: 'alter table',
         table: { name: 'test' },
-        change: {
+        changes: [{
             type: 'add constraint',
             constraint: {
                 type: 'primary key',
                 constraintName: { name: 'cname' },
                 columns: [{ name: 'a' }, { name: 'b' }],
             }
-        }
+        }]
     })
 
 
     checkAlterTable(`ALTER TABLE public.tbl OWNER to postgres;`, {
         type: 'alter table',
         table: { name: 'tbl', schema: 'public' },
-        change: {
+        changes: [{
             type: 'owner',
             to: { name: 'postgres' },
-        }
+        }]
     })
 
     // https://github.com/oguimbal/pg-mem/issues/9
@@ -266,7 +301,7 @@ describe('Alter table', () => {
         type: 'alter table',
         table: { name: 'location', schema: 'public' },
         only: true,
-        change: {
+        changes: [{
             type: 'add constraint',
             constraint: {
                 type: 'foreign key',
@@ -276,7 +311,7 @@ describe('Alter table', () => {
                 foreignTable: { name: 'city', schema: 'public' },
                 match: 'full',
             }
-        }
+        }]
     });
 
 
@@ -290,7 +325,7 @@ describe('Alter table', () => {
       );`, {
         type: 'alter table',
         table: { name: 'city', schema: 'public' },
-        change: {
+        changes: [{
             type: 'alter column',
             column: { name: 'city_id' },
             alter: {
@@ -305,6 +340,78 @@ describe('Alter table', () => {
                     cache: 1,
                 }
             }
-        }
+        }]
+    })
+
+    // https://github.com/oguimbal/pgsql-ast-parser/issues/57
+    checkAlterTable(`
+        ALTER TABLE public.tbl
+        OWNER to postgres,
+        ADD check (a > 0);
+    `, {
+        type: 'alter table',
+        table: { name: 'tbl', schema: 'public' },
+        changes: [{
+            type: 'owner',
+            to: { name: 'postgres' },
+        }, {
+            type: 'add constraint',
+            constraint: {
+                type: 'check',
+                expr: {
+                    type: 'binary',
+                    left: { type: 'ref', name: 'a' },
+                    op: '>',
+                    right: { type: 'integer', value: 0 },
+                }
+            },
+        }]
+    })
+
+    checkAlterTable(`
+        ALTER TABLE public.tbl
+        OWNER to postgres,
+        ALTER COLUMN city_id ADD GENERATED ALWAYS AS IDENTITY (
+          SEQUENCE NAME public.city_city_id_seq
+          START WITH 0
+          INCREMENT BY 1
+          MINVALUE 0
+          NO MAXVALUE
+          CACHE 1
+        ),
+        ADD check (a > 0);
+    `, {
+        type: 'alter table',
+        table: { name: 'tbl', schema: 'public' },
+        changes: [{
+            type: 'owner',
+            to: { name: 'postgres' },
+        }, {
+            type: 'alter column',
+            column: { name: 'city_id' },
+            alter: {
+                type: 'add generated',
+                always: 'always',
+                sequence: {
+                    name: { name: 'city_city_id_seq', schema: 'public' },
+                    startWith: 0,
+                    incrementBy: 1,
+                    minValue: 0,
+                    maxValue: 'no maxvalue',
+                    cache: 1,
+                }
+            }
+        }, {
+            type: 'add constraint',
+            constraint: {
+                type: 'check',
+                expr: {
+                    type: 'binary',
+                    left: { type: 'ref', name: 'a' },
+                    op: '>',
+                    right: { type: 'integer', value: 0 },
+                }
+            },
+        }]
     })
 });

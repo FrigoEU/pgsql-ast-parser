@@ -11,25 +11,28 @@ export interface IAstPartialMapper {
     comment?: (val: a.CommentStatement) => a.Statement | nil
     do?: (val: a.DoStatement) => a.Statement | nil
     createFunction?: (val: a.CreateFunctionStatement) => a.Statement | nil
+    dropFunction?: (val: a.DropFunctionStatement) => a.Statement | nil
     raise?: (val: a.RaiseStatement) => a.Statement | nil
     createSchema?: (val: a.CreateSchemaStatement) => a.Statement | nil
-    dropTable?: (val: a.DropTableStatement) => a.Statement | nil
     createEnum?(val: a.CreateEnumType): a.Statement | nil
-    dropIndex?: (val: a.DropIndexStatement) => a.Statement | nil
+    createCompositeType?(val: a.CreateCompositeType): a.Statement | nil
+    drop?: (val: a.DropStatement) => a.Statement | nil
     show?: (val: a.ShowStatement) => a.Statement | nil
-    dropSequence?: (val: a.DropSequenceStatement) => a.Statement | nil
     createTable?: (val: a.CreateTableStatement) => a.Statement | nil
     truncateTable?: (val: a.TruncateTableStatement) => a.Statement | nil
     createExtension?: (val: a.CreateExtensionStatement) => a.Statement | nil
     set?: (st: a.SetStatement) => a.SetStatement | nil
     dataType?: (dataType: a.DataTypeDef) => a.DataTypeDef
     prepare?: (st: a.PrepareStatement) => a.Statement | nil
+    deallocate?: (st: a.DeallocateStatement) => a.Statement | nil
     parameter?: (st: a.ExprParameter) => a.Expr | nil
     tableRef?: (st: a.QNameAliased) => a.QNameAliased | nil
     transaction?: (val: a.CommitStatement | a.RollbackStatement | a.StartTransactionStatement) => a.Statement | nil
     createIndex?: (val: a.CreateIndexStatement) => a.Statement | nil
     alterTable?: (st: a.AlterTableStatement) => a.Statement | nil
+    tableAlteration?: (change: a.TableAlteration, table: a.QNameAliased) => a.TableAlteration | nil
     dropColumn?: (change: a.TableAlterationDropColumn, table: a.QNameAliased) => a.TableAlteration | nil
+    dropConstraint?: (change: a.TableAlterationDropConstraint, table: a.QNameAliased) => a.TableAlteration | nil
     renameConstraint?: (change: a.TableAlterationRenameConstraint, table: a.QNameAliased) => a.TableAlteration | nil
     setTableOwner?: (change: a.TableAlterationOwner, table: a.QNameAliased) => a.TableAlteration | nil
     renameColumn?: (change: a.TableAlterationRenameColumn, table: a.QNameAliased) => a.TableAlteration | nil
@@ -50,6 +53,7 @@ export interface IAstPartialMapper {
     selection?: (val: a.SelectFromStatement) => a.SelectStatement | nil
     createView?: (val: a.CreateViewStatement) => a.Statement | nil
     createMaterializedView?: (val: a.CreateMaterializedViewStatement) => a.Statement | nil
+    refreshMaterializedView?: (val: a.RefreshMaterializedViewStatement) => a.Statement | nil
     from?: (from: a.From) => a.From | nil
     fromCall?: (from: a.FromCall) => a.From | nil
     fromStatement?: (from: a.FromStatement) => a.From | nil
@@ -163,7 +167,7 @@ export function arrayNilMap<T extends Object>(this: void, collection: T[] | nil,
     for (let i = 0; i < collection.length; i++) {
         const orig = collection[i];
         const val = mapper(orig);
-        if (!val || val !== orig) {
+        if (!changed && (!val || val !== orig)) {
             changed = true;
             ret = collection.slice(0, i);
         }
@@ -202,6 +206,7 @@ function withAccepts(val: a.Statement | nil): val is a.WithStatementBinding {
 export class AstDefaultMapper implements IAstMapper {
 
     wrapped?: IAstPartialMapper;
+    skipNext?: boolean;
 
     super() {
         return new SkipModifier(this);
@@ -247,14 +252,15 @@ export class AstDefaultMapper implements IAstMapper {
                 return this.alterSequence(val);
             case 'begin':
                 return this.begin(val);
-            case 'drop index':
-                return this.dropIndex(val);
-            case 'drop sequence':
-                return this.dropSequence(val);
             case 'drop table':
-                return this.dropTable(val);
+            case 'drop index':
+            case 'drop sequence':
+            case 'drop type':
+                return this.drop(val);
             case 'create enum':
                 return this.createEnum(val);
+            case 'create composite type':
+                return this.createCompositeType(val);
             case 'union':
             case 'union all':
                 return this.union(val);
@@ -262,10 +268,14 @@ export class AstDefaultMapper implements IAstMapper {
                 return this.show(val);
             case 'prepare':
                 return this.prepare(val);
+            case 'deallocate':
+                return this.deallocate(val);
             case 'create view':
                 return this.createView(val);
             case 'create materialized view':
                 return this.createMaterializedView(val);
+            case 'refresh materialized view':
+                return this.refreshMaterializedView(val);
             case 'create schema':
                 return this.createSchema(val);
             case 'raise':
@@ -276,6 +286,8 @@ export class AstDefaultMapper implements IAstMapper {
                 return this.do(val);
             case 'create function':
                 return this.createFunction(val);
+            case 'drop function':
+                return this.dropFunction(val);
             case 'values':
                 return this.values(val);
             default:
@@ -318,6 +330,10 @@ export class AstDefaultMapper implements IAstMapper {
         });
     }
 
+    refreshMaterializedView(val: a.RefreshMaterializedViewStatement): a.Statement | nil {
+        return val;
+    }
+
 
     do(val: a.DoStatement): a.Statement | nil {
         return val;
@@ -357,6 +373,17 @@ export class AstDefaultMapper implements IAstMapper {
         });
     }
 
+    dropFunction(val: a.DropFunctionStatement): a.Statement | nil {
+        const args = arrayNilMap(val.arguments, a => {
+            const type = this.dataType(a.type);
+            return assignChanged(a, { type });
+        });
+
+        return assignChanged(val, {
+            arguments: args,
+        });
+    }
+
     show(val: a.ShowStatement): a.Statement | nil {
         return val;
     }
@@ -365,13 +392,15 @@ export class AstDefaultMapper implements IAstMapper {
         return val;
     }
 
-    dropTable(val: a.DropTableStatement): a.Statement | nil {
-        return val;
+    createCompositeType(val: a.CreateCompositeType): a.Statement | nil {
+        const attributes = arrayNilMap(val.attributes, a => assignChanged(a, {
+            dataType: this.dataType(a.dataType),
+        }));
+        return assignChanged(val, { attributes });
     }
-    dropIndex(val: a.DropIndexStatement): a.Statement | nil {
-        return val;
-    }
-    dropSequence(val: a.DropSequenceStatement): a.Statement | nil {
+
+
+    drop(val: a.DropStatement): a.Statement | nil {
         return val;
     }
 
@@ -416,6 +445,9 @@ export class AstDefaultMapper implements IAstMapper {
         if (!table) {
             return null; // nothing to update
         }
+
+        const from = val.from && this.from(val.from);
+
         const where = val.where && this.expr(val.where);
 
         const sets = arrayNilMap(val.sets, x => this.set(x));
@@ -428,6 +460,7 @@ export class AstDefaultMapper implements IAstMapper {
             table,
             where,
             sets,
+            from,
             returning,
         });
     }
@@ -560,15 +593,22 @@ export class AstDefaultMapper implements IAstMapper {
                     expr: def,
                 });
             }
+            case 'reference': {
+                const foreignTable = this.tableRef(c.foreignTable);
+                if (!foreignTable) {
+                    return null;
+                }
+                return assignChanged(c, {
+                    foreignTable,
+                });
+            }
             default:
                 throw NotSupported.never(c);
         }
     }
 
     set(st: a.SetStatement): a.SetStatement | nil {
-        const value = st.value === 'default'
-            ? st.value
-            : this.expr(st.value);
+        const value = this.expr(st.value);
         if (!value) {
             return null;
         }
@@ -633,6 +673,10 @@ export class AstDefaultMapper implements IAstMapper {
         })
     }
 
+    deallocate(st: a.DeallocateStatement): a.Statement | nil {
+        return st;
+    }
+
     // =========================================
     // ============== ALTER TABLE ==============
     // =========================================
@@ -642,56 +686,64 @@ export class AstDefaultMapper implements IAstMapper {
         if (!table) {
             return null; // no table
         }
-        let change: a.TableAlteration | nil;
-        switch (st.change.type) {
-            case 'add column': {
-                change = this.addColumn(st.change, st.table);
-                break;
+        let changes: a.TableAlteration[] = [];
+        let hasChanged: boolean = false;
+        for (let i = 0; i < (st.changes?.length || 0); i++) {
+            const currentChange: a.TableAlteration = st.changes[i];
+            const change: a.TableAlteration | nil = this.tableAlteration(currentChange, st.table);
+
+            hasChanged = hasChanged || (change != currentChange);
+
+            if (!!change) {
+                changes.push(change);
             }
-            case 'add constraint': {
-                change = this.addConstraint(st.change, st.table);
-                break;
-            }
-            case 'alter column': {
-                change = this.alterColumn(st.change, st.table);
-                break;
-            }
-            case 'rename': {
-                change = this.renameTable(st.change, st.table);
-                break;
-            }
-            case 'rename column': {
-                change = this.renameColumn(st.change, st.table);
-                break;
-            }
-            case 'rename constraint': {
-                change = this.renameConstraint(st.change, st.table);
-                break;
-            }
-            case 'drop column': {
-                change = this.dropColumn(st.change, st.table);
-                break;
-            }
-            case 'owner': {
-                change = this.setTableOwner(st.change, st.table);
-                break;
-            }
-            default:
-                throw NotSupported.never(st.change);
         }
 
-        if (!change) {
+        if (!changes.length) {
             return null; // no change left
+        }
+
+        if (!hasChanged) {
+            return st;
         }
 
         return assignChanged(st, {
             table,
-            change,
+            changes,
         });
 
     }
 
+    tableAlteration(change: a.TableAlteration, table: a.QNameAliased): a.TableAlteration | nil {
+        switch (change.type) {
+            case 'add column':
+                return this.addColumn(change, table);
+            case 'add constraint':
+                return this.addConstraint(change, table);
+            case 'alter column':
+                return this.alterColumn(change, table);
+            case 'rename':
+                return this.renameTable(change, table);
+            case 'rename column':
+                return this.renameColumn(change, table);
+            case 'rename constraint':
+                return this.renameConstraint(change, table);
+            case 'drop column':
+                return this.dropColumn(change, table);
+            case 'drop constraint':
+                return this.dropConstraint(change, table);
+            case 'owner':
+                return this.setTableOwner(change, table);
+            default:
+                throw NotSupported.never(change);
+        }
+    }
+
     dropColumn(change: a.TableAlterationDropColumn, table: a.QNameAliased): a.TableAlteration | nil {
+        return change;
+    }
+
+    dropConstraint(change: a.TableAlterationDropConstraint, table: a.QNameAliased): a.TableAlteration | nil {
         return change;
     }
 
@@ -955,7 +1007,7 @@ export class AstDefaultMapper implements IAstMapper {
     join(join: a.JoinClause): a.JoinClause | nil {
         const on = join.on && this.expr(join.on);
         if (!on && !join.using) {
-            return null;
+            return join;
         }
         return assignChanged(join, {
             on,
@@ -1232,6 +1284,10 @@ for (const k of Object.getOwnPropertyNames(proto)) {
         configurable: false,
         get() {
             return function (this: AstDefaultMapper, ...args: []) {
+                if (this.skipNext) {
+                    this.skipNext = false;
+                    return orig.apply(this, args);
+                }
                 const impl = (this.wrapped as any)?.[k];
                 if (!impl) {
                     return orig.apply(this, args);
@@ -1259,7 +1315,8 @@ for (const k of Object.getOwnPropertyNames(proto)) {
         configurable: false,
         get() {
             return function (this: SkipModifier, ...args: []) {
-                return orig.apply(this.parent.wrapped, args);
+                this.parent.skipNext = true;
+                return orig.apply(this.parent, args);
             }
         }
     });

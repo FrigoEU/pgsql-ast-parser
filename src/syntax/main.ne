@@ -22,7 +22,9 @@ import {lexerAny} from '../lexer';
 @include "create-type.ne"
 @include "union.ne"
 @include "prepare.ne"
+@include "deallocate.ne"
 @include "create-view.ne"
+@include "refresh-materialized-view.ne"
 @include "functions.ne"
 
 # list of statements, separated by ";"
@@ -39,7 +41,7 @@ main -> statement_separator:* statement (statement_separator:+ statement):* stat
 statement_separator -> %semicolon
 
 
-statement -> statement_noprep | prepare
+statement -> statement_noprep | prepare | deallocate
 
 statement_noprep
     -> selection
@@ -57,6 +59,7 @@ statement_noprep
     | drop_statement
     | createtype_statement
     | create_view_statements
+    | refresh_view_statements
     | create_schema
     | raise_statement
     | comment_statement

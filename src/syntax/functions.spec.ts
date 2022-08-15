@@ -1,6 +1,6 @@
 import 'mocha';
 import 'chai';
-import { checkStatement } from './spec-utils';
+import { checkInvalid, checkStatement } from './spec-utils';
 import { CreateFunctionStatement } from './ast';
 import { parse } from '../parser';
 import { expect } from 'chai';
@@ -41,36 +41,60 @@ describe('Create function', () => {
         returns: {setof: false, type: integer},
     });
 
+    // modifiers BEFORE code block
+    checkStatement(`CREATE FUNCTION add(integer, integer) RETURNS integer stable
+    LANGUAGE SQL RETURNS NULL ON NULL INPUT
+    AS 'select $1 + $2;'
+    `, {
+        type: 'create function',
+        name: { name: 'add' },
+        arguments: [{ type: integer }, { type: integer }],
+        code: 'select $1 + $2;',
+        language: { name: 'sql' },
+        purity: 'stable',
+        onNullInput: 'null',
+        returns: {setof: false, type: integer},
+    });
 
-    checkStatement(`CREATE FUNCTION fn(in integer) AS 'code' LANGUAGE SQL`, {
+    // duplicate modifiers
+    checkInvalid(`CREATE FUNCTION add(integer, integer) RETURNS integer stable
+    LANGUAGE SQL STABLE
+    AS 'select $1 + $2;'
+    `);
+
+
+
+
+    checkStatement(`CREATE FUNCTION fn(in integer) RETURNS INTeger AS 'code' LANGUAGE SQL`, {
         type: 'create function',
         name: { name: 'fn' },
         arguments: [{ type: integer, mode: 'in' }],
         code: 'code',
+        returns: {setof: false, type: integer},
         language: { name: 'sql' },
     });
 
-    checkStatement(`CREATE FUNCTION fn(i integer = 2) AS 'code' LANGUAGE SQL`, {
-      type: 'create function',
-      name: { name: 'fn' },
-      arguments: [{ type: integer, name: { name: 'i' }, default: { type: 'integer', value: 2 }}],
-      code: 'code',
-      language: { name: 'sql' },
+    checkStatement(`CREATE FUNCTION fn(i integer = 2) AS 'code' LANGUAGE SQL returns integer`, {
+        type: 'create function',
+        name: { name: 'fn' },
+        arguments: [{ type: integer, name: { name: 'i' }, default: { type: 'integer', value: 2 } }],
+        code: 'code',
+        returns: {setof: false, type: integer},
+        language: { name: 'sql' },
     });
 
-    checkStatement(`CREATE FUNCTION fn(in out integer) AS 'code' LANGUAGE SQL`, {
+    checkStatement(`CREATE FUNCTION fn(in out integer) returns integer AS 'code' LANGUAGE SQL`, {
         type: 'create function',
         name: { name: 'fn' },
         arguments: [{ type: integer, mode: 'in', name: { name: 'out' } }],
         code: 'code',
+        returns: {setof: false, type: integer},
         language: { name: 'sql' },
     });
 
-    checkStatement(`CREATE OR REPLACE FUNCTION increment(i integer) RETURNS integer AS $$
-    BEGIN
+    checkStatement(`CREATE OR REPLACE FUNCTION increment(i integer) RETURNS integer AS $$BEGIN
             RETURN i + 1;
-    END;
-$$ VOLATILE LANGUAGE plpgsql`, {
+    END;$$ VOLATILE LANGUAGE plpgsql`, {
         type: 'create function',
         name: { name: 'increment' },
         orReplace: true,
@@ -78,19 +102,18 @@ $$ VOLATILE LANGUAGE plpgsql`, {
         returns: { setof: false, type: integer},
         language: { name: 'plpgsql' },
         purity: 'volatile',
-        code: `
-    BEGIN
+        code: `BEGIN
             RETURN i + 1;
-    END;
-`,
+    END;`,
     });
 
-    checkStatement(`CREATE FUNCTION dup(in int, out f1 int, out f2 text)
-    AS $$ SELECT $1, CAST($1 AS text) || ' is text' $$
+    checkStatement(`CREATE FUNCTION dup(in int, out f1 int, out f2 text) returns integer
+    AS $$SELECT $1, CAST($1 AS text) || ' is text'$$
     LANGUAGE SQL`, {
         type: 'create function',
         name: { name: 'dup' },
         language: { name: 'sql' },
+        returns: {setof: false, type: integer},
         arguments: [{
             type: int,
             mode: 'in',
@@ -104,17 +127,17 @@ $$ VOLATILE LANGUAGE plpgsql`, {
             name: { name: 'f2' },
             mode: 'out',
         }],
-        code: ` SELECT $1, CAST($1 AS text) || ' is text' `,
+        code: `SELECT $1, CAST($1 AS text) || ' is text'`,
     });
 
     checkStatement(`CREATE FUNCTION public.dup(int) RETURNS TABLE(f1 int, f2 text)
-    AS $$ SELECT $1, CAST($1 AS text) || ' is text' $$
+    AS $$SELECT $1, CAST($1 AS text) || ' is text'$$
     LANGUAGE SQL`, {
         type: 'create function',
         name: { name: 'dup', schema: 'public', },
         language: { name: 'sql' },
         arguments: [{ type: int }],
-        code: ` SELECT $1, CAST($1 AS text) || ' is text' `,
+        code: `SELECT $1, CAST($1 AS text) || ' is text'`,
         returns: {
             setof: true,
             type: {
@@ -135,15 +158,16 @@ $$ VOLATILE LANGUAGE plpgsql`, {
         type: 'create function',
         name: { name: 'fn' },
         language: { name: 'sql' },
+        returns: {setof: false, type: integer},
         arguments: [],
         code: `body`,
     };
     const simpleSt = (x: string) => [
-        `CREATE FUNCTION fn() AS 'body' LANGUAGE SQL ${x}`,
+        `CREATE FUNCTION fn() AS 'body' returns integer LANGUAGE SQL ${x}`,
     ];
 
 
-    checkStatement(`CREATE FUNCTION fn() AS 'body' LEAKPROOF LANGUAGE SQL `, {
+    checkStatement(`CREATE FUNCTION fn() AS 'body' returns integer LEAKPROOF LANGUAGE SQL `, {
         ...simple,
         leakproof: true,
     });
@@ -181,9 +205,49 @@ $$ VOLATILE LANGUAGE plpgsql`, {
     });
 
 
-    it ('is not greedy', () => {
+    it('is not greedy', () => {
         const parsed = parse(`create function foo() returns text as $$ select 'hi'; $$ language sql;
                 create function bar() returns text as $$ select 'there'; $$ language sql;`);
         expect(parsed.length).to.equal(2);
+    });
+
+    checkStatement('drop function my_function', {
+        type: 'drop function',
+        name: { name: 'my_function' },
+    });
+
+    checkStatement('drop function if exists my_function', {
+        type: 'drop function',
+        ifExists: true,
+        name: { name: 'my_function' },
+    });
+
+    checkStatement('drop function my_function(text)', {
+        type: 'drop function',
+        name: { name: 'my_function' },
+        arguments: [{ type: { name: 'text' } }]
+    });
+
+    checkStatement('drop function my_function(text, float)', {
+        type: 'drop function',
+        name: { name: 'my_function' },
+        arguments: [{
+            type: { name: 'text' },
+        }, {
+            type: { name: 'float' },
+        }]
+    });
+
+
+    checkStatement('drop function my_function(txt text, fl float)', {
+        type: 'drop function',
+        name: { name: 'my_function' },
+        arguments: [{
+            type: { name: 'text' },
+            name: { name: 'txt' },
+        }, {
+            type: { name: 'float' },
+            name: { name: 'fl' },
+        }]
     });
 });
