@@ -1,5 +1,5 @@
-import { Expr, Name, DataTypeDef, QName } from "syntax/ast"
-import { toSql } from "to-sql"
+import { Expr, Name, DataTypeDef, QName } from "../syntax/ast" 
+import { toSql } from "../to-sql"
 
 export type Declaration =
   {
