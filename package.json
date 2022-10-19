@@ -1,5 +1,5 @@
 {
-  "name": "pgsql-ast-parser",
+  "name": "trader-pgsql-ast-parser",
   "version": "10.5.2",
   "description": "Yet another simple Postgres SQL parser/modifier",
   "main": "lib/index.js",
