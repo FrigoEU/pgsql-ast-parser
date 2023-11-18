@@ -573,6 +573,13 @@ line`,
                 name: 'c'
             },
         });
+
+        checkTreeExpr(['a overlaps b'], {
+            type: 'binary',
+            op: 'OVERLAPS',
+            left: { type: 'ref', name: 'a'},
+            right: { type: 'ref', name: 'b' }
+        });
     });
 
 
