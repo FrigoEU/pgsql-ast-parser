@@ -70,7 +70,8 @@ expr_paren -> lparen (expr_or_select | expr_list_many) rparen {% get(1) %}
 expr_or -> expr_binary[op_single[%kw_or], expr_or, expr_and]
 expr_and -> expr_binary[op_single[%kw_and], expr_and, expr_not]
 expr_not -> expr_left_unary[op_single[%kw_not], expr_not, expr_eq]
-expr_eq -> expr_binary[op_scopable[(%op_eq | %op_neq)], expr_eq, expr_is]
+expr_eq -> expr_binary[op_scopable[(%op_eq | %op_neq)], expr_eq, expr_overlaps]
+expr_overlaps -> expr_binary[op_single[%kw_overlaps], expr_overlaps, expr_is]
 
 expr_star -> star  {% x => track(x, { type: 'ref', name: '*' }) %}
 
