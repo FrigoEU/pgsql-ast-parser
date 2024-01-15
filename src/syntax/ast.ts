@@ -759,7 +759,7 @@ export type LogicOperator = 'OR' | 'AND';
 export type EqualityOperator = 'IN' | 'NOT IN' | 'LIKE' | 'NOT LIKE' | 'ILIKE' | 'NOT ILIKE' | '=' | '!=';
 // see https://www.postgresql.org/docs/12/functions-math.html
 export type MathOpsBinary = '|' | '&' | '>>' | '^' | '#' | '<<' | '>>';
-export type ComparisonOperator = '>' | '>=' | '<' | '<=' | '@>' | '<@' | '?' | '?|' | '?&' | '#>>' | '~' | 'OVERLAPS';
+export type ComparisonOperator = '>' | '>=' | '<' | '<=' | '@>' | '<@' | '?' | '?|' | '?&' | '#>>' | '~' | 'OVERLAPS' | '@@';
 export type AdditiveOperator = '||' | '-' | '#-' | '&&' | '+';
 export type MultiplicativeOperator = '*' | '%' | '/';
 export type ConstructOperator = 'AT TIME ZONE';
