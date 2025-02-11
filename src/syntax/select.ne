@@ -10,7 +10,7 @@ array_of[EXP] -> $EXP (%comma $EXP {% last %}):* {% ([head, tail]) => {
 # https://www.postgresql.org/docs/12/sql-select.html
 
 select_statement
-    -> select_what select_from:? select_where:? select_groupby:? select_order_by:? select_having:? select_limit_offset:? select_for:?
+    -> select_what select_from:? select_where:? select_groupby:? select_having:? select_order_by:? select_limit_offset:? select_for:?
     {% x => {
         let [what, from, where, groupBy, having, orderBy, limit, selectFor] = x;
         from = unwrap(from);
