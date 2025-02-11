@@ -1165,6 +1165,12 @@ const visitor = astVisitor<IAstFullVisitor>(m => ({
             ret.push(' ');
         }
 
+        if (s.having) {
+            ret.push('HAVING ');
+            m.expr(s.having);
+            ret.push(" ");
+        }
+
         if (s.orderBy) {
             visitOrderBy(m, s.orderBy);
             ret.push(' ');

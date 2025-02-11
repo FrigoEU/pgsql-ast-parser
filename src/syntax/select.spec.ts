@@ -256,6 +256,22 @@ describe('Select statements', () => {
         ]
     })
 
+    checkSelect('select * from test group by grp having count(*) > 2', {
+        type: 'select',
+        columns: columns({ type: 'ref', name: '*' }),
+        from: [tbl('test')],
+        groupBy: [{ type: 'ref', name: 'grp' }],
+        having: {
+          left: {
+            type: "call",
+            function: {name: "count"},
+            args: [{name: "*", type: "ref"}],
+          },
+          op: ">",
+          right: {type: "integer", value: 2},
+          type: "binary"
+       }
+    })
 
     function buildJoin(t: JoinType): SelectStatement {
         return {
