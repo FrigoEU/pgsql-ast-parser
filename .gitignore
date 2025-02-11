@@ -5,6 +5,7 @@ package-lock.json
 coverage
 dist
 lib
+.direnv/
 
 # Vim swap files
 [._]*.s[a-v][a-z]
